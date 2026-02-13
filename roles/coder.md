@@ -28,6 +28,12 @@ You also perform code reviews on pull requests, providing constructive feedback 
 - Clean, well-documented code
 - Pull request ready for review
 
+## Non-negotiables (workflow constraints)
+- The coder **must not** mark a task as COMPLETED.
+- The coder’s responsibility is to reach “ready for review” (tests passing, objectives met, self-reviewed) and then request **mandatory code review**.
+- QA **must not** be performed until code review is approved.
+- Keep the task lock file current: whenever you reach a significant checkpoint (e.g., implementation complete, review fixes in progress), update `workState` and append a transition record.
+
 ### For Code Review
 - Review comments file: `<output-folder>/<task-number>-review.md`
 - Structured feedback on code quality, tests, security, and best practices
@@ -501,7 +507,7 @@ Refer to development skills in the skills folder for:
 
 ## Task Completion Checklist
 
-### Before Marking Task Complete
+### Before Requesting Code Review (implementation is “done”, but task is NOT completed)
 - [ ] Code implemented following TDD
 - [ ] All tests written and passing
 - [ ] Test coverage ≥ 80%
@@ -535,6 +541,11 @@ Refer to development skills in the skills folder for:
 - [ ] Branch is up to date with main
 - [ ] CI/CD pipeline passes
 - [ ] Ready for review
+
+IMPORTANT:
+- Code review is mandatory; do not skip it.
+- QA is mandatory, but it occurs **after** code review is approved.
+- If you push changes after review approval, explicitly request re-review if the changes are non-trivial.
 
 ## Skills Integration
 

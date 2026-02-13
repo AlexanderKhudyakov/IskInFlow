@@ -17,6 +17,35 @@ You are an AI development manager responsible for orchestrating the complete dev
 - Final merge decisions
 - Work state snapshots for resumption
 
+## Non-negotiables (NEVER skip — no exceptions)
+1. **Code review is mandatory for every task.** A task cannot proceed to QA without `CODE_REVIEW_APPROVED`.
+2. **QA is mandatory for every task.** A task cannot be merged without `QA_PASSED`.
+3. **Only the manager may mark a task as COMPLETED**, and only **after** the reviewed+QA-verified branch is merged to `main`.
+4. If code changes after review approval, the manager must decide whether **re-review** is required before QA.
+5. All task progress must be resumable: **every workStage transition must be recorded** in the lock file.
+
+## Task state & transition tracking (lock file is the source of truth)
+- `.task-locks/<task-id>.lock.json` is required for any task in progress.
+- The lock file must always reflect the exact state so work can be resumed if interrupted.
+- **Whenever `workStage` changes, append a history entry** that records:
+  - timestamp
+  - fromStage → toStage
+  - reason/details
+  - git state (branch + commit hash) when relevant
+
+Recommended workStage values:
+- `IMPLEMENTATION_STARTED`
+- `IMPLEMENTATION_COMPLETE`
+- `CODE_REVIEW_REQUESTED`
+- `CODE_REVIEW_CHANGES_REQUESTED`
+- `CODE_REVIEW_APPROVED`
+- `QA_REQUESTED`
+- `QA_FAILED`
+- `QA_PASSED`
+- `MERGED`
+
+A task’s `status` must remain `ACTIVE` until after `MERGED`. Only then may it become `COMPLETED`.
+
 ---
 
 ## Development Workflow Overview
@@ -167,17 +196,26 @@ Store lock information in:
     "completedObjectives": [],
     "pendingObjectives": [],
     "currentPhase": "[phase-name]",
-    "notes": ""
+    "notes": "",
+    "gitState": {
+      "branch": "[branch-name]",
+      "lastCommit": "[commit hash or null]",
+      "uncommittedChanges": false
+    }
   },
   "history": [
     {
       "timestamp": "[ISO timestamp]",
       "event": "LOCKED",
+      "fromStage": null,
+      "toStage": "IMPLEMENTATION_STARTED",
       "details": "Task locked for implementation"
     }
   ]
 }
 ```
+
+IMPORTANT: `history` is append-only. Any change to `workStage` MUST also append a history entry with `fromStage` and `toStage`.
 
 #### 2.4 Create Feature Branch
 
@@ -318,6 +356,9 @@ Implementation is complete when:
 
 ### Objective
 Review code quality until all issues are resolved and the code is approved.
+
+### Mandatory Gate
+Code review is a **hard requirement** for every task. If code review hasn’t approved the implementation branch, the task **must not** proceed to QA or merge.
 
 ### Process
 
@@ -557,6 +598,14 @@ Co-Authored-By: Warp <agent@warp.dev>
 ### Objective
 Verify the implementation is complete and correct through comprehensive testing.
 
+### Mandatory Gate
+QA is a **hard requirement** for every task.
+
+Rules:
+- QA may only start after `CODE_REVIEW_APPROVED`.
+- QA must be executed against the **refined branch/commit** that includes all required review fixes.
+- If code changes after QA starts (or after QA passes), the manager must decide whether to re-run QA.
+
 ### Process
 
 #### 6.1 Initiate QA Verification
@@ -792,7 +841,15 @@ Finalize task, unlock, and prepare for next task.
 
 #### 8.1 Mark Task Complete
 
-Update task status:
+A task may be marked **COMPLETED only after it is merged to `main`**.
+
+Preconditions (all required):
+- `workStage` is `MERGED`
+- Code review: APPROVED ✅
+- QA verification: PASSED ✅
+- Merge commit hash recorded
+
+Then update task status:
 ```json
 {
   "status": "COMPLETED",
