@@ -1,11 +1,17 @@
 # Command: Start or Continue Next Task
 
 ## Purpose
-Select the next available task and start or resume implementation using the manager workflow.
+Prefer continuing unfinished work: **if any task is already in progress (an ACTIVE lock exists), the agent MUST resume it rather than starting a new task**.
+
+Otherwise, select the next available task and start implementation using the manager workflow.
 
 This command is intentionally strict: **every task MUST go through code review and QA**. A task is only considered **COMPLETED** after the reviewed+QA-verified branch is **merged to `main`**.
 
 ## Steps
+0. **Manager: Resume-first rule (mandatory)**
+   - Look for any existing `.task-locks/<task-id>.lock.json` with `status: ACTIVE`.
+   - If one exists, **resume that task** (summarize progress + current `workStage`) and do not start a new task.
+   - If multiple ACTIVE locks exist, stop and ask for clarification (or resolve according to an explicit project policy) before proceeding.
 1. **Manager: Select & lock** (see `roles/manager.md`)
    - Load the current milestone task list.
    - Select the first eligible unblocked task.
