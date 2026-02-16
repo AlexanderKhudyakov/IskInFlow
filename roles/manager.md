@@ -46,19 +46,6 @@ Recommended workStage values:
 
 A task’s `status` must remain `ACTIVE` until after `MERGED`. Only then may it become `COMPLETED`.
 
-## Task locking mechanics (abstract)
-The manager enforces a lock-based workflow. The manager understands the policy; the coder executes the mechanics.
-
-Manager-level rules:
-- The lock file on `main` is the **single source of truth** for whether a task is taken.
-- **Starting a task:** the lock commit must be **merged to `main` and pushed to remote** before any implementation work begins. This prevents multiple agents from picking the same task.
-- **Branching:** the implementation branch (`codex/...`) is created **only after** the lock commit exists on `main`.
-- **Resuming:** if an ACTIVE lock exists, the manager **must ask the user** before resuming work. Never auto-resume without explicit user confirmation.
-- **Merging:** the final merge to `main` **must include** the final lock update that moves the lock to `.task-locks/completed/` and sets `status: COMPLETED`, `workStage: MERGED`.
-- **Post-merge:** after merging the task branch to `main`, **push `main` to remote** before any cleanup.
-- **Branch cleanup:** the merged feature branch may be deleted **only after** `main` has been pushed to remote with the merge commit.
-- Detailed step-by-step lock mechanics (git commands, exact lock file updates) are defined in `roles/coder.md`.
-
 ---
 
 ## Development Workflow Overview
@@ -171,7 +158,7 @@ Prevent multiple agents from working on the same task by recording an ACTIVE loc
 - If an ACTIVE lock already exists, the manager **must ask the user for explicit confirmation** before resuming. Never auto-resume.
 
 ### Where the details live
-- The step-by-step locking mechanics and git commands are defined in `roles/coder.md`.
+- **Git and workflow mechanics**: See [`guides/git_and_workflow_operations.md`](../guides/git_and_workflow_operations.md) for step-by-step lock procedures, branch operations, push requirements, and multi-agent worktree setup.
 
 ---
 
@@ -426,8 +413,6 @@ The review is performed by the **Code Reviewer** role following `roles/code_revi
 
 ## Stage 5: QA Verification
 
-This workflow does **not** use pull requests.
-
 After code review is approved, proceed directly to QA verification (see `roles/qa_engineer.md`).
 
 ---
@@ -610,16 +595,14 @@ Preconditions:
 - Code review: APPROVED ✅
 - QA verification: PASSED ✅
 
-Lock requirement (critical):
-- The **final merge must include** the final lock update that marks the task completed. The implementation branch's tip must include a commit that:
-  - sets lock to `status: COMPLETED`, `workStage: MERGED`
-  - moves `.task-locks/<task-id>.lock.json` → `.task-locks/completed/<task-id>.lock.json`
+**For complete merge and push procedures, see [`guides/git_and_workflow_operations.md#part-5-command-reference`](../guides/git_and_workflow_operations.md#part-5-command-reference).**
 
-Merge and push sequence (see `roles/coder.md` for exact commands):
-1. Checkout `main` and pull latest
-2. Fast-forward merge the feature branch
-3. **Push `main` to remote** (mandatory before any cleanup)
-4. Only after push succeeds: optionally delete the local feature branch
+Manager-level checklist:
+- [ ] Final lock update prepared (lock moved to `completed/` directory)
+- [ ] `status: COMPLETED`, `workStage: MERGED` set in final lock
+- [ ] Feature branch merged to `main` (fast-forward)
+- [ ] `main` pushed to remote successfully
+- [ ] Feature branch deleted (only after push succeeds)
 
 Post-merge verification (recommended):
 ```bash
@@ -672,12 +655,9 @@ As manager, verify that:
 
 #### 8.3 Clean Up
 
-**Important:** Branch cleanup is allowed **only after** `main` has been pushed to remote.
+**For branch and worktree cleanup procedures, see [`guides/git_and_workflow_operations.md#part-5-command-reference`](../guides/git_and_workflow_operations.md#part-5-command-reference).**
 
-The coder role (`roles/coder.md`) contains the exact cleanup commands. At a high level:
-1. Verify `main` was pushed to remote (required)
-2. Delete the local feature branch
-3. Prune stale remote-tracking branches
+Important: Cleanup is allowed **only after** `main` has been pushed to remote.
 
 #### 8.4 Task Completion Report
 
@@ -764,16 +744,10 @@ When resuming interrupted work:
 
 If work must be interrupted:
 
-1. **Commit current progress** (even if incomplete, with WIP prefix)
-2. **Update work state** in lock file
-3. **Document current context** in notes
-4. **Push branch** to remote
+1. **Update work state** in lock file (document checkpoint and pending work)
+2. **Push current progress** to remote (for safety)
 
-```bash
-git add .
-git commit -m "WIP: [description of current state]"
-git push origin feature/[task-id]-[description]
-```
+**For exact git commands, see [`guides/git_and_workflow_operations.md#part-4-resume-protocol`](../guides/git_and_workflow_operations.md#part-4-resume-protocol).**
 
 ---
 
@@ -859,8 +833,8 @@ git push origin feature/[task-id]-[description]
 ```markdown
 **Situation**: Merge conflicts on final merge
 **Action**:
-1. Rebase branch on main
-2. Resolve conflicts carefully
+1. See [`guides/git_and_workflow_operations.md#handling-merge-conflicts`](../guides/git_and_workflow_operations.md#handling-merge-conflicts)
+2. Rebase branch on main and resolve conflicts
 3. Re-run all tests
 4. May need quick re-review if significant
 5. May need quick QA re-verification

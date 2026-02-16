@@ -29,7 +29,9 @@ This command is intentionally strict: **every task MUST go through code review a
 ### Step 2: Lock Task on `main` (Coder)
 This step prevents multiple agents from working on the same task.
 
-**Detailed mechanics are in `roles/coder.md`**. Summary:
+**For complete step-by-step procedures, see [`guides/git_and_workflow_operations.md#part-5-command-reference`](../guides/git_and_workflow_operations.md#part-5-command-reference).**
+
+Summary:
 1. Create `.task-locks/<task-id>.lock.json` with `status: ACTIVE`, `workStage: IMPLEMENTATION_STARTED`.
 2. Commit the lock file on `main`.
 3. **Push `main` to remote** — this is mandatory before proceeding.
@@ -54,7 +56,9 @@ This step prevents multiple agents from working on the same task.
 - See `roles/qa_engineer.md`.
 
 ### Step 6: Final Merge and Push (Manager + Coder)
-**Detailed mechanics are in `roles/coder.md`**. Summary:
+**For complete step-by-step procedures, see [`guides/git_and_workflow_operations.md#part-5-command-reference`](../guides/git_and_workflow_operations.md#part-5-command-reference).**
+
+Summary:
 1. On the feature branch, prepare final lock update:
    - Set `status: COMPLETED`, `workStage: MERGED`.
    - Move lock to `.task-locks/completed/<task-id>.lock.json`.

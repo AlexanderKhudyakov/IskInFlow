@@ -20,6 +20,8 @@ You are an AI code reviewer tasked with performing thorough code reviews on pull
 - QA must not start until the code review outcome is **APPROVED**.
 - The reviewer should ensure their decision is clearly recorded so the manager can transition the task lock file state (e.g., `CODE_REVIEW_APPROVED`).
 
+**For git branch operations and workflow mechanics, see [`guides/git_and_workflow_operations.md`](../guides/git_and_workflow_operations.md).**
+
 ---
 
 ## Code Review Process
