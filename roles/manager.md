@@ -46,6 +46,19 @@ Recommended workStage values:
 
 A task’s `status` must remain `ACTIVE` until after `MERGED`. Only then may it become `COMPLETED`.
 
+## Task locking mechanics (abstract)
+The manager enforces a lock-based workflow. The manager understands the policy; the coder executes the mechanics.
+
+Manager-level rules:
+- The lock file on `main` is the **single source of truth** for whether a task is taken.
+- **Starting a task:** the lock commit must be **merged to `main` and pushed to remote** before any implementation work begins. This prevents multiple agents from picking the same task.
+- **Branching:** the implementation branch (`codex/...`) is created **only after** the lock commit exists on `main`.
+- **Resuming:** if an ACTIVE lock exists, the manager **must ask the user** before resuming work. Never auto-resume without explicit user confirmation.
+- **Merging:** the final merge to `main` **must include** the final lock update that moves the lock to `.task-locks/completed/` and sets `status: COMPLETED`, `workStage: MERGED`.
+- **Post-merge:** after merging the task branch to `main`, **push `main` to remote** before any cleanup.
+- **Branch cleanup:** the merged feature branch may be deleted **only after** `main` has been pushed to remote with the merge commit.
+- Detailed step-by-step lock mechanics (git commands, exact lock file updates) are defined in `roles/coder.md`.
+
 ---
 
 ## Development Workflow Overview
@@ -59,19 +72,15 @@ The development process follows these stages in order:
 │                                                                          │
 │  1. TASK SELECTION          Find first unblocked task in milestone      │
 │         ↓                                                                │
-│  2. TASK LOCKING            Lock task to prevent conflicts              │
+│  2. TASK LOCKING            Lock task (lock commit must be on main)     │
 │         ↓                                                                │
 │  3. IMPLEMENTATION          Coder implements (or resumes) task          │
 │         ↓                                                                │
 │  4. CODE REVIEW             Review → Fix → Re-review until approved     │
 │         ↓                                                                │
-│  5. PULL REQUEST            Create/update PR with all changes           │
+│  5. QA VERIFICATION         QA tests → Fix → Re-test until passed       │
 │         ↓                                                                │
-│  6. QA VERIFICATION         QA tests → Fix → Re-test until passed       │
-│         ↓                                                                │
-│  7. FINAL MERGE             Merge to main branch                        │
-│         ↓                                                                │
-│  8. TASK COMPLETION         Unlock task, mark complete, next task       │
+│  6. FINAL MERGE             Merge to main (includes final lock update)  │
 │                                                                          │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -153,85 +162,16 @@ If no task is available:
 ## Stage 2: Task Locking
 
 ### Objective
-Lock the selected task to prevent concurrent work and track work state.
+Prevent multiple agents from working on the same task by recording an ACTIVE lock on `main`.
 
-### Process
+### Manager-level policy (abstract)
+- A task is considered "taken" only when `.task-locks/<task-id>.lock.json` is **committed to `main` and pushed to remote**.
+- The manager must ensure the lock commit exists on `main` (and is pushed) **before** the coder starts implementation.
+- The implementation branch is created **after** the lock commit exists on `main`.
+- If an ACTIVE lock already exists, the manager **must ask the user for explicit confirmation** before resuming. Never auto-resume.
 
-#### 2.1 Create Task Lock
-
-```markdown
-## Task Lock Record
-
-**Task ID**: [Task ID]
-**Task Name**: [Task Name]
-**Locked At**: [Timestamp]
-**Locked By**: [Worker identifier]
-**Lock Status**: ACTIVE
-**Work Stage**: IMPLEMENTATION_STARTED
-**Branch Name**: [feature/task-id-short-description]
-```
-
-#### 2.2 Lock File Location
-
-Store lock information in:
-```
-.task-locks/
-  └── [task-id].lock.json
-```
-
-#### 2.3 Lock File Structure
-
-```json
-{
-  "taskId": "[task-id]",
-  "taskName": "[task-name]",
-  "taskFile": "[path-to-task-file]",
-  "lockedAt": "[ISO timestamp]",
-  "lockedBy": "[worker-id]",
-  "status": "ACTIVE",
-  "workStage": "IMPLEMENTATION_STARTED",
-  "branch": "[branch-name]",
-  "workState": {
-    "lastCheckpoint": "[timestamp]",
-    "completedObjectives": [],
-    "pendingObjectives": [],
-    "currentPhase": "[phase-name]",
-    "notes": "",
-    "gitState": {
-      "branch": "[branch-name]",
-      "lastCommit": "[commit hash or null]",
-      "uncommittedChanges": false
-    }
-  },
-  "history": [
-    {
-      "timestamp": "[ISO timestamp]",
-      "event": "LOCKED",
-      "fromStage": null,
-      "toStage": "IMPLEMENTATION_STARTED",
-      "details": "Task locked for implementation"
-    }
-  ]
-}
-```
-
-IMPORTANT: `history` is append-only. Any change to `workStage` MUST also append a history entry with `fromStage` and `toStage`.
-
-#### 2.4 Create Feature Branch
-
-```bash
-git checkout main
-git pull origin main
-git checkout -b feature/[task-id]-[short-description]
-```
-
-#### 2.5 Lock Validation
-
-Before locking, verify:
-- [ ] Task is not already locked
-- [ ] Task is eligible (prerequisites met)
-- [ ] Branch name is available
-- [ ] No conflicting work in progress
+### Where the details live
+- The step-by-step locking mechanics and git commands are defined in `roles/coder.md`.
 
 ---
 
@@ -399,7 +339,7 @@ The review is performed by the **Code Reviewer** role following `roles/code_revi
 #### 4.3 Review Decision Handling
 
 **If APPROVED ✅:**
-- Proceed to Stage 5 (Pull Request)
+- Proceed to QA verification
 - Update work stage to `CODE_REVIEW_APPROVED`
 
 **If REQUEST_CHANGES ❌:**
@@ -484,108 +424,26 @@ The review is performed by the **Code Reviewer** role following `roles/code_revi
 
 ---
 
-## Stage 5: Pull Request Creation
+## Stage 5: QA Verification
 
-### Objective
-Create or update the pull request with all approved changes.
+This workflow does **not** use pull requests.
 
-### Process
-
-#### 5.1 Prepare Pull Request
-
-Before creating PR:
-- [ ] All commits are clean and logical
-- [ ] Branch is up to date with main
-- [ ] No merge conflicts
-- [ ] All tests passing
-- [ ] Code review approved
-
-#### 5.2 Rebase and Clean Up
-
-```bash
-git fetch origin main
-git rebase origin/main
-# Resolve any conflicts
-git push origin feature/[task-id]-[description] --force-with-lease
-```
-
-#### 5.3 Create Pull Request
-
-Use the PR template from `roles/coder.md`:
-
-```markdown
-# Task: [Task Name]
-
-**Task ID**: [Task number]
-**Task File**: [Path to task markdown file]
-
-## Summary
-[Brief description of what was implemented]
-
-## Changes
-- [Change 1]
-- [Change 2]
-- [Change 3]
-
-## Implementation Details
-[Any important details about the implementation approach]
-
-## Testing
-- All unit tests passing: ✅
-- All integration tests passing: ✅
-- Test coverage: [X%]
-- Manual testing completed: ✅
-
-### How to Test
-1. [Step 1]
-2. [Step 2]
-3. [Expected result]
-
-## Code Review
-- Code review completed: ✅
-- Review iterations: [N]
-- Final review status: APPROVED
-- Review file: [Link to review file]
-
-## Checklist
-- [x] All task objectives complete
-- [x] All acceptance criteria met
-- [x] All tests passing
-- [x] Code self-reviewed
-- [x] Code review approved
-- [x] No linting errors
-- [x] Documentation updated
-- [x] Edge cases handled
-- [x] Error handling implemented
-- [x] Security considerations addressed
-
-## Related Resources
-- Task file: [link]
-- Code review: [link to review file]
-
-## Notes for QA
-[Any specific areas or scenarios to test]
+After code review is approved, proceed directly to QA verification (see `roles/qa_engineer.md`).
 
 ---
-Co-Authored-By: Warp <agent@warp.dev>
-```
 
 #### 5.4 Update Work Stage
 
+Record QA initiation in the lock file (example):
 ```json
 {
-  "workStage": "PR_CREATED",
-  "pullRequest": {
-    "url": "[PR URL]",
-    "number": "[PR number]",
-    "createdAt": "[timestamp]"
-  },
+  "workStage": "QA_REQUESTED",
   "history": [
     ...previous,
     {
       "timestamp": "[ISO timestamp]",
-      "event": "PR_CREATED",
-      "details": "Pull request #[number] created"
+      "event": "QA_REQUESTED",
+      "details": "QA requested after code review approval"
     }
   ]
 }
@@ -614,7 +472,6 @@ Rules:
 ## QA Verification Request
 
 **Task ID**: [Task ID]
-**PR**: [PR URL]
 **Branch**: [Branch name]
 
 **QA Scope**:
@@ -628,7 +485,7 @@ Rules:
 
 **QA Input**:
 - Task file: [Path]
-- PR/Branch: [URL/Name]
+- Branch: [Branch name]
 - Output folder: [Path for QA report]
 ```
 
@@ -673,7 +530,7 @@ QA verification is performed by the **QA Engineer** role following `roles/qa_eng
 │                    QA LOOP                            │
 ├──────────────────────────────────────────────────────┤
 │                                                       │
-│   PR Ready for QA                                     │
+│   Branch ready for QA                                 │
 │          ↓                                            │
 │   QA Verification (QA Engineer)                       │
 │          ↓                                            │
@@ -746,88 +603,27 @@ QA verification is performed by the **QA Engineer** role following `roles/qa_eng
 ## Stage 7: Final Merge
 
 ### Objective
-Merge the approved and verified changes to the main branch.
+Merge the approved and QA-verified branch to `main`, push to remote, then optionally clean up.
 
 ### Process
+Preconditions:
+- Code review: APPROVED ✅
+- QA verification: PASSED ✅
 
-#### 7.1 Pre-Merge Checklist
+Lock requirement (critical):
+- The **final merge must include** the final lock update that marks the task completed. The implementation branch's tip must include a commit that:
+  - sets lock to `status: COMPLETED`, `workStage: MERGED`
+  - moves `.task-locks/<task-id>.lock.json` → `.task-locks/completed/<task-id>.lock.json`
 
-Before merging, verify:
-- [ ] Code review: APPROVED ✅
-- [ ] QA verification: PASSED ✅
-- [ ] All tests passing ✅
-- [ ] Branch up to date with main ✅
-- [ ] No merge conflicts ✅
-- [ ] CI/CD pipeline passes ✅
-- [ ] PR description complete ✅
+Merge and push sequence (see `roles/coder.md` for exact commands):
+1. Checkout `main` and pull latest
+2. Fast-forward merge the feature branch
+3. **Push `main` to remote** (mandatory before any cleanup)
+4. Only after push succeeds: optionally delete the local feature branch
 
-#### 7.2 Final Rebase (if needed)
-
+Post-merge verification (recommended):
 ```bash
-git fetch origin main
-git rebase origin/main
-# Resolve any conflicts
-# Re-run tests to verify
-npm test
-git push origin feature/[task-id]-[description] --force-with-lease
-```
-
-#### 7.3 Merge Pull Request
-
-**Merge Strategy**: Squash and merge (recommended) or merge commit
-
-```bash
-# Via CLI
-gh pr merge [PR-number] --squash --delete-branch
-
-# Or via GitHub UI
-# 1. Click "Squash and merge"
-# 2. Edit commit message if needed
-# 3. Confirm merge
-# 4. Delete branch
-```
-
-**Commit Message Format**:
-```
-feat(task-[id]): [Task name/description]
-
-- [Key change 1]
-- [Key change 2]
-- [Key change 3]
-
-Task: [task-id]
-Closes #[PR-number]
-
-Co-Authored-By: Warp <agent@warp.dev>
-```
-
-#### 7.4 Post-Merge Verification
-
-```bash
-git checkout main
-git pull origin main
-npm test  # Verify tests pass on main
-```
-
-#### 7.5 Update Work Stage
-
-```json
-{
-  "workStage": "MERGED",
-  "mergeInfo": {
-    "mergedAt": "[timestamp]",
-    "mergeCommit": "[commit hash]",
-    "prNumber": "[PR number]"
-  },
-  "history": [
-    ...previous,
-    {
-      "timestamp": "[ISO timestamp]",
-      "event": "MERGED",
-      "details": "PR #[number] merged to main"
-    }
-  ]
-}
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun swift test
 ```
 
 ---
@@ -868,24 +664,20 @@ Then update task status:
 
 #### 8.2 Release Task Lock
 
-Remove or archive the lock file:
-```bash
-# Archive for history
-mv .task-locks/[task-id].lock.json .task-locks/completed/[task-id].lock.json
+In this workflow, lock release/archival is part of the **final merge**: the merged branch should already have moved the lock file to `.task-locks/completed/<task-id>.lock.json` and marked it `COMPLETED`.
 
-# Or delete
-rm .task-locks/[task-id].lock.json
-```
+As manager, verify that:
+- `.task-locks/<task-id>.lock.json` does not exist on `main`
+- `.task-locks/completed/<task-id>.lock.json` exists and indicates `status: COMPLETED`
 
 #### 8.3 Clean Up
 
-```bash
-# Delete local feature branch
-git branch -d feature/[task-id]-[description]
+**Important:** Branch cleanup is allowed **only after** `main` has been pushed to remote.
 
-# Prune remote tracking branches
-git fetch --prune
-```
+The coder role (`roles/coder.md`) contains the exact cleanup commands. At a high level:
+1. Verify `main` was pushed to remote (required)
+2. Delete the local feature branch
+3. Prune stale remote-tracking branches
 
 #### 8.4 Task Completion Report
 
@@ -912,7 +704,6 @@ git fetch --prune
 - Test Coverage: [X%]
 
 ### Deliverables
-- PR: [URL]
 - Merge Commit: [hash]
 - Code Review: [path to review file]
 - QA Report: [path to QA report]
@@ -1023,16 +814,12 @@ git push origin feature/[task-id]-[description]
 
 ## Workflow Decision Matrix
 
-| Stage | Success Criteria | Next Stage | Failure Action |
-|-------|-----------------|------------|----------------|
-| Task Selection | Eligible task found | Task Locking | Wait or resolve blockers |
-| Task Locking | Lock acquired | Implementation | Retry or select different task |
-| Implementation | All objectives met, tests passing | Code Review | Continue implementation |
-| Code Review | APPROVED | PR Creation | Coder fixes, re-review |
-| PR Creation | PR created successfully | QA | Resolve PR issues |
-| QA Verification | PASSED | Final Merge | Coder fixes, possibly re-review |
-| Final Merge | Merged to main | Task Completion | Resolve merge issues |
-| Task Completion | Task marked complete | Next Task | Verify completion |
+- Task Selection → Task Locking: choose the first eligible unblocked task.
+- Task Locking → Implementation: lock commit is on `main`; then create `codex/...` branch.
+- Implementation → Code Review: implementation complete; request mandatory review.
+- Code Review → QA: only after APPROVED.
+- QA → Final Merge: only after PASS.
+- Final Merge → Task Completion: final merge includes the completion lock update and archival.
 
 ---
 

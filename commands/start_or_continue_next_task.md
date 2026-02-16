@@ -1,52 +1,78 @@
 # Command: Start or Continue Next Task
 
 ## Purpose
-Prefer continuing unfinished work: **if any task is already in progress (an ACTIVE lock exists), the agent MUST resume it rather than starting a new task**.
+This command selects the next task using a strict, lock-based workflow.
 
-Otherwise, select the next available task and start implementation using the manager workflow.
+Key rules:
+- **No pull requests** are used in this workflow. Everything is branch-based with direct merges.
+- **Lock-first**: the lock commit must be on `main` **and pushed to remote** before any implementation begins.
+- **User confirmation is required before resuming**: if an unfinished (ACTIVE) task is found, the agent **must ask the user** before continuing. Never auto-resume.
+- The lock file on `main` (pushed to remote) is the **single source of truth** for whether a task is taken.
+- **Post-merge push**: after merging, `main` must be pushed to remote before any cleanup.
+- **Branch cleanup**: the feature branch may only be deleted after `main` is pushed.
 
-This command is intentionally strict: **every task MUST go through code review and QA**. A task is only considered **COMPLETED** after the reviewed+QA-verified branch is **merged to `main`**.
+This command is intentionally strict: **every task MUST go through code review and QA**. A task is only considered **COMPLETED** after the reviewed+QA-verified branch is **merged to `main`** and `main` is **pushed to remote**.
 
 ## Steps
-0. **Manager: Resume-first rule (mandatory)**
-   - Look for any existing `.task-locks/<task-id>.lock.json` with `status: ACTIVE`.
-   - If one exists, **resume that task** (summarize progress + current `workStage`) and do not start a new task.
-   - If multiple ACTIVE locks exist, stop and ask for clarification (or resolve according to an explicit project policy) before proceeding.
-1. **Manager: Select & lock** (see `roles/manager.md`)
-   - Load the current milestone task list.
-   - Select the first eligible unblocked task.
-   - Check for existing lock file; resume if present, otherwise lock the task.
-   - Create a feature branch using the required prefix `codex/`.
-   - Initialize lock file state (`status: ACTIVE`, `workStage: IMPLEMENTATION_STARTED`).
-2. **Coder: Implement with TDD** (see `roles/coder.md`)
-   - Implement the task using TDD.
-   - Keep tests green and update the lock file with checkpoints.
-   - When ready, transition lock file to `workStage: CODE_REVIEW_REQUESTED`.
-3. **Code Review (mandatory, never skip)** (see `roles/code_reviewer.md`)
-   - Produce a review artifact: `<output-folder>/<task-number>-review.md`.
-   - If review requests changes, coder must fix and re-request review.
-   - Only when review status is **APPROVED** can the task proceed.
-   - Transition lock file to `workStage: CODE_REVIEW_APPROVED`.
-4. **QA Verification (mandatory, never skip)** (see `roles/qa_engineer.md`)
-   - QA MUST be run only on the **refined branch/commit that incorporates all review feedback**.
-   - QA produces: `<output-folder>/<task-number>-qa-report.md`.
-   - QA failures loop back to coder (and may require re-review).
-   - Transition lock file to `workStage: QA_PASSED` only on PASS.
-5. **Merge (mandatory gate)** (see `roles/manager.md`)
-   - Only merge when `CODE_REVIEW_APPROVED` and `QA_PASSED` are both true.
-   - Transition lock file to `workStage: MERGED` and record merge commit.
-6. **Mark task completed (only after merge)**
-   - Only after merge to `main`, set `status: COMPLETED` and archive/release the lock file.
+
+### Step 0: Resume-first Check (Manager)
+- Pull latest `main` and check for any `.task-locks/<task-id>.lock.json` with `status: ACTIVE`.
+- If an ACTIVE lock exists:
+  - Summarize prior progress: `workStage`, last checkpoint, completed objectives.
+  - **Ask the user whether to resume**. Do not proceed without explicit confirmation.
+- If multiple ACTIVE locks exist, stop and ask the user how to proceed.
+
+### Step 1: Select Next Task (Manager)
+- If no ACTIVE lock exists (or user declined to resume), select the first eligible unblocked task from the current milestone.
+- See `roles/manager.md` for task selection criteria.
+
+### Step 2: Lock Task on `main` (Coder)
+This step prevents multiple agents from working on the same task.
+
+**Detailed mechanics are in `roles/coder.md`**. Summary:
+1. Create `.task-locks/<task-id>.lock.json` with `status: ACTIVE`, `workStage: IMPLEMENTATION_STARTED`.
+2. Commit the lock file on `main`.
+3. **Push `main` to remote** — this is mandatory before proceeding.
+4. Only after push succeeds: create the feature branch `codex/<task-id>-<short-description>` from `main`.
+
+### Step 3: Implement with TDD (Coder)
+- Implement the task using TDD on the feature branch.
+- Periodically update the lock file with progress checkpoints.
+- When implementation is complete, transition to `workStage: CODE_REVIEW_REQUESTED`.
+- See `roles/coder.md` for detailed implementation guidelines.
+
+### Step 4: Code Review (Mandatory)
+- Produce review artifact: `.task-locks/artifacts/<task-number>-review.md`.
+- Only when review status is **APPROVED** can the task proceed.
+- Transition lock to `workStage: CODE_REVIEW_APPROVED`.
+- See `roles/code_reviewer.md`.
+
+### Step 5: QA Verification (Mandatory)
+- QA runs only on the branch/commit that incorporates review feedback.
+- QA produces: `.task-locks/artifacts/<task-number>-qa-report.md`.
+- Transition lock to `workStage: QA_PASSED` only on PASS.
+- See `roles/qa_engineer.md`.
+
+### Step 6: Final Merge and Push (Manager + Coder)
+**Detailed mechanics are in `roles/coder.md`**. Summary:
+1. On the feature branch, prepare final lock update:
+   - Set `status: COMPLETED`, `workStage: MERGED`.
+   - Move lock to `.task-locks/completed/<task-id>.lock.json`.
+   - Commit this final update.
+2. Checkout `main`, pull latest, fast-forward merge the feature branch.
+3. **Push `main` to remote** — mandatory before any cleanup.
+4. Only after push succeeds: optionally delete the local feature branch.
 
 ## Output
 - Task selection summary
-- `.task-locks/<task-id>.lock.json` updated/created (with append-only transition history)
-- Feature branch with implemented changes
-- Code review report (mandatory)
+- Lock file committed to `main` **and pushed to remote** when task starts
+- Feature branch `codex/...` created after lock is on remote
+- Code review artifact (mandatory)
 - QA report (mandatory)
-- Merge info recorded in lock file
+- Final merge includes lock archival; `main` pushed to remote
+- Branch cleanup only after remote push confirmed
 
 ## Notes
-- If no eligible task is found, report blockers and recommend the next action.
-- If resuming, summarize prior progress **and current workStage** before continuing.
-- **Never** mark a task completed based on “implementation finished”. Completion requires: review ✅ + QA ✅ + merge ✅.
+- If no eligible task is found, report blockers and recommend next action.
+- **Never** mark a task completed based on "implementation finished". Completion requires: review ✅ + QA ✅ + merge ✅ + push ✅.
+- **Always ask the user** before resuming unfinished work. Never auto-resume.
