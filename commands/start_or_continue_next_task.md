@@ -1,5 +1,8 @@
 # Command: Start or Continue Next Task
 
+## MCP-First Requirement
+Before executing any step in this command, consult `guides/mcp_first_tooling.md`. Enumerate available MCP servers and tools, and prefer them for discovery, validation, and execution tasks.
+
 ## Purpose
 This command selects the next task using a strict, lock-based workflow.
 

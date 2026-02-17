@@ -1,5 +1,8 @@
 # Command: Idea to Development Plan
 
+## MCP-First Requirement
+Before executing any step in this command, consult `guides/mcp_first_tooling.md`. Enumerate available MCP servers and tools, and prefer them for discovery, validation, and execution tasks.
+
 ## Purpose
 Convert a raw idea into a product spec, technical spec, and detailed development plan.
 
