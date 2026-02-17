@@ -12,26 +12,35 @@ This guide provides the definitive procedures for all git operations, task locki
 4. **Single Source of Truth**: The lock file on `main` (remote) is authoritative for task status
 5. **Resumable Work**: Every checkpoint is recorded so work can be resumed if interrupted
 6. **Quality Gates**: Specific push points enforce code review and QA before merging
-7. **Git Worktree**: Multiple agents MUST use `git worktree` to prevent working copy corruption
+7. **Git Worktree (Required)**: All agents MUST use `git worktree` for every task to maintain isolated working copies and prevent file/artifact contamination
+8. **Push Main After Merge**: The final merge to `main` MUST be pushed to remote before any branch cleanup. Task is not complete until remote `main` is updated
 
 ---
 
-## Multi-Agent Safety: Git Worktree Requirement
+## Git Worktree Requirement
 
-**CRITICAL**: When multiple agents work in parallel on different tasks, each agent MUST use `git worktree` to maintain isolated working copies. Sharing a single working directory with multiple agents checking out different branches causes corruption and data loss.
+**CRITICAL**: All agents MUST use `git worktree` for each task, regardless of whether working alone or in parallel. This requirement applies to all scenarios and ensures:
+- Isolated working copies for each task
+- Clean build/test artifacts per task
+- Prevention of file conflicts and state corruption
+- Clear separation between work on different tasks
+- Ability to parallelize work in the future without changing workflow
 
 ### Why Git Worktree is Required
 
-Git assumes a single working copy per repository. When multiple agents:
-- Check out different branches in the same directory
-- Modify files on different branches simultaneously
-- Run builds/tests in parallel
+Git assumes a single working copy per repository. When agents work on different branches, even sequentially:
+- They may leave build artifacts, temporary files, or uncommitted changes
+- Switching branches in a shared directory causes:
+  - File conflicts and overwrites
+  - Lost work and dangling test artifacts
+  - Build system failures
+  - State inconsistency between branches
 
-...they corrupt the shared working directory state, causing:
-- File conflicts and overwrites
-- Lost work
-- Build system failures
-- State inconsistency
+Using `git worktree` for every task:
+- Guarantees isolated file state per branch
+- Keeps build artifacts and dependencies separate
+- Prevents accidental contamination from previous tasks
+- Enables future parallelization without workflow changes
 
 ### Git Worktree Setup
 
@@ -78,14 +87,24 @@ But they share:
 
 ### Worktree Cleanup
 
-After task completion, delete the worktree:
+After task completion and **only after final merge is pushed to remote**, delete the worktree:
 
 ```bash
-# From the main worktree (or any other), remove the completed worktree
+# From main (or another worktree), verify push succeeded
+git fetch origin
+git status  # Should show "Your branch is up to date with 'origin/main'"
+
+# Remove the completed worktree
 git worktree remove ../<task-id>-worktree
 
-# Prune pruned worktree references
+# Prune worktree references
 git worktree prune
+
+# Delete the local branch
+git branch -d codex/<task-id>-<short-description>
+
+# Prune stale remote-tracking branches
+git fetch --prune
 ```
 
 ### Worktree Best Practices
@@ -98,30 +117,41 @@ git worktree prune
 6. **Don't nest worktrees**: Place sibling to main worktree, not inside
 7. **CI/CD consideration**: Build systems MUST use worktrees in parallel environments
 
-### Example: Multi-Agent Workflow
+### Example: Worktree Workflow
 
-**Agent 1 (Task 023):**
+**Single Agent (Task 023):**
 ```bash
-git worktree add ../task-023-metrics /Users/uberoid/Projects/KVGA codex/023-metrics-system
+# Lock acquired on main and pushed
+git branch codex/023-metrics-system main
+git worktree add ../task-023-metrics codex/023-metrics-system
 cd ../task-023-metrics
-# Work on task 023 here
+# Work on task 023 here (isolated from main)
+# Build artifacts stay in this worktree
+# Tests run in this worktree only
 ```
 
-**Agent 2 (Task 045) - simultaneously:**
+**Multi-Agent (simultaneous work):**
 ```bash
-git worktree add ../task-045-auth /Users/uberoid/Projects/KVGA codex/045-user-auth
+# Agent 1 (Task 023) - in main repo
+git branch codex/023-metrics-system main
+git worktree add ../task-023-metrics codex/023-metrics-system
+cd ../task-023-metrics
+# Work on task 023 here - completely isolated
+
+# Agent 2 (Task 045) - in same main repo (parallel, no conflicts)
+git branch codex/045-user-auth main
+git worktree add ../task-045-auth codex/045-user-auth
 cd ../task-045-auth
-# Work on task 045 here - NO conflicts with Agent 1
-```
+# Work on task 045 here - completely isolated, no conflicts with Agent 1
 
-**Agent 3 (Task 089) - simultaneously:**
-```bash
-git worktree add ../task-089-perf /Users/uberoid/Projects/KVGA codex/089-performance
+# Agent 3 (Task 089) - continues pattern
+git branch codex/089-perf main
+git worktree add ../task-089-perf codex/089-perf
 cd ../task-089-perf
-# Work on task 089 here - NO conflicts with Agents 1 & 2
+# Work on task 089 here - completely isolated
 ```
 
-All three agents work in parallel with isolated working copies, no corruption.
+All agents (whether working alone or parallel) use isolated worktrees, preventing file contamination and state corruption.
 
 ---
 
@@ -215,7 +245,7 @@ Where:
 
 Feature branches are created **only after** the lock commit is on `main` and pushed to remote.
 
-**For single-agent scenarios (sequential work):**
+**For all scenarios (REQUIRED):**
 
 ```bash
 # Step 1: Verify lock is on main (should already be pushed)
@@ -224,34 +254,19 @@ git pull origin main
 ls .task-locks/<task-id>.lock.json  # Should exist
 
 # Step 2: Create feature branch from main
-git checkout -b codex/<task-id>-<short-description>
-
-# Verify you're on the new branch
-git branch  # Should show * codex/<task-id>-<short-description>
-```
-
-**For multi-agent scenarios (parallel work) - REQUIRED:**
-
-```bash
-# Step 1: Verify lock is on main
-git checkout main
-git pull origin main
-ls .task-locks/<task-id>.lock.json  # Should exist
-
-# Step 2: Create feature branch
 git branch codex/<task-id>-<short-description> main
 
-# Step 3: Create WORKTREE for this branch (REQUIRED for parallel work)
+# Step 3: Create WORKTREE for this branch (REQUIRED for all agents)
 git worktree add ../<task-id>-worktree codex/<task-id>-<short-description>
 
 # Step 4: Navigate to worktree
 cd ../<task-id>-worktree
 
-# Verify you're on the correct branch
+# Step 5: Verify you're on the correct branch
 git branch  # Should show * codex/<task-id>-<short-description>
 ```
 
-**Critical**: When multiple agents work in parallel, using `git worktree` is MANDATORY. Sharing a single checkout causes corruption (see "Multi-Agent Safety" section above).
+**Critical**: All agents MUST use `git worktree` for every task. This ensures isolated working copies regardless of whether working alone or in parallel, and prevents file/artifact contamination between tasks (see "Git Worktree Requirement" section above).
 
 ### Branch Deletion (Cleanup)
 
@@ -316,11 +331,18 @@ git push origin main
 - **When**: After merging feature branch to `main` with final lock update
 - **What**: All commits from feature branch + final lock archival
 - **Requirement**: MUST succeed before any branch cleanup
-- **Why**: Confirms completed task is recorded on remote
+- **Why**: Confirms completed task is recorded on remote and ensures other agents/CI see the work
+
+**CRITICAL: This push is non-negotiable. Task is not complete until main is pushed to remote.**
 
 ```bash
 git push origin main
 ```
+
+After this push succeeds:
+- Only then proceed with worktree cleanup
+- Only then delete feature branch
+- Only then archive lock file metadata
 
 ### Merge Strategy
 
@@ -437,10 +459,21 @@ git checkout -b codex/<task-id>-<short-description>
 git checkout main && git pull origin main
 git merge --ff-only codex/<task-id>-<short-description>
 
-# 3. Push to remote (MANDATORY)
+# 3. Push to remote (MANDATORY - DO NOT SKIP)
 git push origin main
+# *** CRITICAL: This push MUST succeed before proceeding ***
+# *** Verify output shows: "main -> main" ***
 
-# 4. Cleanup branch (only after push succeeds)
+# 4. Verify push succeeded
+git fetch origin
+git status  # Should show "Your branch is up to date with 'origin/main'"
+
+# 5. Cleanup worktree (only after push succeeds)
+cd /path/to/main/repo  # Navigate away from worktree
+git worktree remove ../<task-id>-worktree
+git worktree prune
+
+# 6. Cleanup branch references
 git branch -d codex/<task-id>-<short-description>
 git fetch --prune
 ```
@@ -504,7 +537,7 @@ git branch -d codex/<task-id>-<short-description> && \
 git fetch --prune
 ```
 
-### Worktree Operations (Multi-Agent - RECOMMENDED)
+### Worktree Operations (Required for All Agents)
 ```bash
 # List all worktrees
 git worktree list
@@ -517,8 +550,9 @@ cd ../<task-id>-worktree
 # Verify correct branch
 git branch
 
-# Clean up worktree after merge
+# Clean up worktree after merge and push to remote
 cd /path/to/main/repo && \
+git fetch origin && \
 git worktree remove ../<task-id>-worktree && \
 git worktree prune && \
 git branch -d codex/<task-id>-<short-description> && \
