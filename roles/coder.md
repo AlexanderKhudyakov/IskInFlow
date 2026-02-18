@@ -329,7 +329,8 @@ Before requesting code review, perform thorough self-review:
 
 #### Standards Review
 - [ ] Follows project coding standards
-- [ ] Linter passes with no errors
+- [ ] SwiftLint rules are followed for all changed Swift files
+- [ ] SwiftLint check passes with no errors before requesting review (e.g., `swiftlint --config .swiftlint.yml`)
 - [ ] Type checker passes (if applicable)
 - [ ] Formatter applied consistently
 - [ ] No debug code or console.logs left behind
@@ -342,6 +343,7 @@ Request code review only when:
 - [ ] All task objectives are 100% complete
 - [ ] All acceptance criteria are met
 - [ ] All tests are passing
+- [ ] SwiftLint check passes on the current branch
 - [ ] Code has been self-reviewed at least once
 - [ ] All checklist items above are checked
 - [ ] No known issues or TODOs remain
@@ -548,6 +550,7 @@ Refer to development skills in the skills folder for:
 - [ ] All task completion items checked
 - [ ] Review request summary prepared
 - [ ] All tests pass locally
+- [ ] SwiftLint check passes locally
 - [ ] Lock file updated to `CODE_REVIEW_REQUESTED`
 - [ ] Ready for review
 
