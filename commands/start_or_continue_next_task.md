@@ -14,7 +14,10 @@ Key rules:
 - **Post-merge push**: after merging, `main` must be pushed to remote before any cleanup.
 - **Branch cleanup**: the feature branch may only be deleted after `main` is pushed.
 
-This command is intentionally strict: **every task MUST go through code review and QA**. A task is only considered **COMPLETED** after the reviewed+QA-verified branch is **merged to `main`** and `main` is **pushed to remote**.
+This command is intentionally strict:
+- Tasks that change code or tests MUST go through code review and QA.
+- Tasks with no code/test changes (docs/spec/process-only) MAY skip code review and QA after manager verification and lock-history evidence.
+- A task is only considered **COMPLETED** after required quality gates are satisfied, the branch is **merged to `main`**, and `main` is **pushed to remote**.
 
 ## Steps
 
@@ -43,22 +46,37 @@ Summary:
 ### Step 3: Implement with TDD (Coder)
 - Implement the task using TDD on the feature branch.
 - Periodically update the lock file with progress checkpoints.
-- When implementation is complete, transition to `workStage: CODE_REVIEW_REQUESTED`.
+- When implementation is complete, transition to `workStage: IMPLEMENTATION_COMPLETE`.
 - See `roles/coder.md` for detailed implementation guidelines.
 
-### Step 4: Code Review (Mandatory)
-- Produce review artifact: `.task-locks/artifacts/<task-number>-review.md`.
-- Only when review status is **APPROVED** can the task proceed.
-- Transition lock to `workStage: CODE_REVIEW_APPROVED`.
-- See `roles/code_reviewer.md`.
+### Step 4: Determine Required Quality Gates (Manager)
+- Inspect branch diff and classify task scope:
+  - **Code/test changed**: requires code review + QA.
+  - **No code/test changed**: allows skip of code review + QA.
+- Record decision and evidence in lock history.
+- Suggested evidence: `git diff --name-only main...<branch>` output showing only docs/spec/process files.
 
-### Step 5: QA Verification (Mandatory)
-- QA runs only on the branch/commit that incorporates review feedback.
-- QA produces: `.task-locks/artifacts/<task-number>-qa-report.md`.
-- Transition lock to `workStage: QA_PASSED` only on PASS.
-- See `roles/qa_engineer.md`.
+### Step 5: Code Review (Conditional)
+- If task changes code/tests:
+  - Produce review artifact: `.task-locks/artifacts/<task-number>-review.md`.
+  - Only when review status is **APPROVED** can the task proceed.
+  - Transition lock to `workStage: CODE_REVIEW_APPROVED`.
+  - See `roles/code_reviewer.md`.
+- If task has no code/test changes:
+  - Skip code review and set `workStage: CODE_REVIEW_SKIPPED`.
+  - Record skip reason + diff evidence in lock history.
 
-### Step 6: Final Merge and Push (Manager + Coder)
+### Step 6: QA Verification (Conditional)
+- If task changes code/tests:
+  - QA runs only on the branch/commit that incorporates review feedback.
+  - QA produces: `.task-locks/artifacts/<task-number>-qa-report.md`.
+  - Transition lock to `workStage: QA_PASSED` only on PASS.
+  - See `roles/qa_engineer.md`.
+- If task has no code/test changes:
+  - Skip QA and set `workStage: QA_SKIPPED`.
+  - Record skip reason + diff evidence in lock history.
+
+### Step 7: Final Merge and Push (Manager + Coder)
 **For complete step-by-step procedures, see [`guides/git_and_workflow_operations.md#part-5-command-reference`](../guides/git_and_workflow_operations.md#part-5-command-reference).**
 
 Summary:
@@ -74,12 +92,13 @@ Summary:
 - Task selection summary
 - Lock file committed to `main` **and pushed to remote** when task starts
 - Feature branch `codex/...` created after lock is on remote
-- Code review artifact (mandatory)
-- QA report (mandatory)
+- Code review artifact (required only when code/tests changed)
+- QA report (required only when code/tests changed)
+- For no-code/test tasks: lock history entry documenting approved review/QA skip with diff evidence
 - Final merge includes lock archival; `main` pushed to remote
 - Branch cleanup only after remote push confirmed
 
 ## Notes
 - If no eligible task is found, report blockers and recommend next action.
-- **Never** mark a task completed based on "implementation finished". Completion requires: review ✅ + QA ✅ + merge ✅ + push ✅.
+- **Never** mark a task completed based on "implementation finished". Completion requires: required quality gates ✅ + merge ✅ + push ✅.
 - **Always ask the user** before resuming unfinished work. Never auto-resume.
