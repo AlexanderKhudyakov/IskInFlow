@@ -162,7 +162,8 @@ Check the code against all quality standards:
 
 ##### Standards Compliance
 - [ ] Follows project coding standards
-- [ ] No linting errors
+- [ ] **No linting errors** — linter passes with zero violations on all changed files
+- [ ] **No linter suppression comments** (`swiftlint:disable`, `// nolint`, `eslint-disable`, etc.) in changed files — flag as Critical if found
 - [ ] Type checking passes (if applicable)
 - [ ] Consistent formatting
 - [ ] No debug code or console.logs

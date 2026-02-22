@@ -36,6 +36,11 @@ You also perform code reviews on branches, providing constructive feedback to en
 - **Always ask the user** before resuming work on an unfinished task. Never auto-resume.
 - **In multi-agent mode: the coder does NOT self-review.** After implementation, hand off to a different agent for review (see "Implementation Handoff" below).
 
+### Mandatory Linting Rules
+- **Always check linter compliance before every commit.** Run the project linter (e.g., SwiftLint) on all changed files before staging and committing. No commit may be created with known linter violations.
+- **NEVER suppress or disable linter rules in code.** Do not add `swiftlint:disable`, `// nolint`, `eslint-disable`, or equivalent comments. Instead, fix the underlying code to satisfy the rule. If you believe a rule is wrong for the project, raise it with the user — never bypass it silently.
+- **Linter-fix changes MUST be included in the same commit.** If fixing a linter violation requires code changes (e.g., replacing a force unwrap with a safe alternative), those changes must be staged and committed together with the rest of your work. Never leave linter fixes as a separate follow-up.
+
 ### For Code Review
 - Review comments file: `<output-folder>/<task-number>/review.md`
 - Structured feedback on code quality, tests, security, and best practices
@@ -378,12 +383,48 @@ Before requesting code review, perform thorough self-review:
 
 #### Standards Review
 - [ ] Follows project coding standards
-- [ ] SwiftLint rules are followed for all changed Swift files
-- [ ] SwiftLint check passes with no errors before requesting review (e.g., `swiftlint --config .swiftlint.yml`)
+- [ ] **Linter check passes with zero violations** on all changed files (see Phase 5a)
+- [ ] **No linter suppression comments** exist in changed files (`swiftlint:disable`, `// nolint`, etc.)
+- [ ] **All linter-fix changes are staged** in the current commit (not deferred)
 - [ ] Type checker passes (if applicable)
 - [ ] Formatter applied consistently
 - [ ] No debug code or console.logs left behind
 - [ ] No commented-out code
+
+### Phase 5a: Linting Compliance (Mandatory Before Every Commit)
+
+This is a mandatory stage that must be completed before creating any commit — whether it is an implementation commit, a review-fix commit, or a refactoring commit.
+
+#### Procedure
+
+1. **Run the linter on all changed files**
+   ```bash
+   # Example for SwiftLint:
+   git diff --name-only --diff-filter=ACMR | grep '\.swift$' | xargs swiftlint lint
+   # Or run the project's configured linter command
+   ```
+
+2. **Fix ALL violations by modifying code**
+   - Replace force unwraps (`!`) with safe alternatives (`guard let`, `if let`, literal initializers, `?? default`)
+   - Fix import ordering, naming, spacing, and other rule violations
+   - **NEVER add `swiftlint:disable`, `// nolint`, `eslint-disable`, or any other suppression comments.** This is strictly forbidden. Fix the code instead.
+
+3. **Stage linter-fix changes together with your other changes**
+   - All code changes made to satisfy the linter MUST be included in the same commit as the work that introduced them
+   - Do not leave linter fixes for a separate commit or follow-up PR
+
+4. **Re-run the linter to verify a clean result**
+   - Confirm zero violations before proceeding to `git commit`
+   - If new violations appear (e.g., from the fix itself), repeat from step 2
+
+#### Common Safe Patterns (Swift)
+| Violation | Fix |
+|---|---|
+| `UnicodeScalar(0x4E00)!` | `let fallback: UnicodeScalar = "\u{4E00}"` |
+| `URL(string: "...")!` | `guard let url = URL(string: "...") else { preconditionFailure("...") }` |
+| `array.min(by:)!` | `guard let best = array.min(by:) else { preconditionFailure("...") }` |
+| `dict[key]!` | `dict[key, default: defaultValue]` or `guard let value = dict[key]` |
+| `array.first!` | `guard let first = array.first else { preconditionFailure("...") }` |
 
 ### Phase 5b: Skill Capture
 
@@ -596,7 +637,9 @@ Refer to development skills in the skills folder for:
 - [ ] Naming is clear and consistent
 - [ ] Comments added where needed
 - [ ] No code smells present
-- [ ] Linting passes
+- [ ] Linting passes with zero violations (Phase 5a completed)
+- [ ] No linter suppression comments in changed files
+- [ ] All linter-fix changes included in commit (not deferred)
 - [ ] Type checking passes (if applicable)
 - [ ] Self-review completed
 - [ ] Documentation updated
@@ -609,7 +652,8 @@ Refer to development skills in the skills folder for:
 - [ ] All task completion items checked
 - [ ] Review request summary prepared
 - [ ] All tests pass locally
-- [ ] SwiftLint check passes locally
+- [ ] Linter check passes locally with zero violations
+- [ ] No linter suppression comments anywhere in changed files
 - [ ] Lock file updated to `CODE_REVIEW_REQUESTED`
 - [ ] Ready for review
 
@@ -910,7 +954,9 @@ Before resubmitting, perform a thorough self-review:
 - [ ] No flaky tests
 
 ##### Confirm Standards
-- [ ] Linting passes
+- [ ] Linting passes with zero violations (Phase 5a completed)
+- [ ] No linter suppression comments in changed files
+- [ ] All linter-fix changes included in commit
 - [ ] Type checking passes (if applicable)
 - [ ] No debug code left
 - [ ] No commented-out code
