@@ -146,6 +146,7 @@ That guide is the definitive reference for all git workflow operations. This rol
 - Check related resources and documentation
 
 #### 2. Review Development Skills
+- Read `.claude/skills/_index.md` for project-specific skills (architecture, conventions, how-tos)
 - Check the skills folder for relevant development skills
 - Use appropriate skills for the technology stack
 - Apply language-specific best practices
@@ -384,6 +385,16 @@ Before requesting code review, perform thorough self-review:
 - [ ] No debug code or console.logs left behind
 - [ ] No commented-out code
 
+### Phase 5b: Skill Capture
+
+Before moving to review, consider whether you discovered anything worth saving:
+
+- Did you spend >2 minutes tracing a non-obvious code path?
+- Did you figure out a procedure that isn't documented?
+- Did you map out which files are involved in a feature area?
+
+If yes, create a skill in `.claude/skills/` (see `_index.md` for the template) and add it to the index table. This saves future agents from rediscovering the same thing.
+
 ### Phase 6: Ready for Review
 
 #### Review Readiness Requirements
@@ -612,7 +623,8 @@ IMPORTANT:
 ## Skills Integration
 
 ### Using Development Skills
-- Check `/skills` folder for relevant skills before starting
+- Read `.claude/skills/_index.md` first — project-specific architecture, conventions, and how-tos
+- Check `IskInFlow/skills/` for shared cross-repo workflow skills
 - Use language-specific skills for best practices
 - Apply framework-specific patterns and conventions
 - Follow established coding standards
