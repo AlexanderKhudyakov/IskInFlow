@@ -24,6 +24,110 @@ You are an AI development manager responsible for orchestrating the complete dev
 4. **Only the manager may mark a task as COMPLETED**, and only **after** required quality gates are satisfied and the branch is merged to `main`.
 5. If code changes after review approval, the manager must decide whether **re-review** is required before QA.
 6. All task progress must be resumable: **every workStage transition must be recorded** in the lock file.
+7. **In multi-agent mode: the implementing agent and the reviewing/QA agent must be different.** Self-review is not permitted when multiple agents are available.
+8. **Only the Manager (or the user) may reclaim stale locks.** Worker agents never reclaim each other's locks.
+9. **Agent identity is mandatory.** Every lock file must include `agentId`. Every history entry must record which agent performed the transition.
+
+---
+
+## Multi-Agent Orchestration
+
+### Agent Naming & Assignment
+
+Before parallel work begins, the Manager (or user) assigns fixed names to each agent:
+
+| Agent | Name | Role |
+|---|---|---|
+| 1st | `agent-alpha` | Implementer |
+| 2nd | `agent-beta` | Implementer |
+| 3rd | `agent-gamma` | Implementer or dedicated reviewer/QA |
+| 4th | `agent-delta` | Implementer |
+| 5th | `agent-epsilon` | Implementer |
+
+Each agent session generates a random `agentSession` hex string at startup for restart disambiguation.
+
+### Recommended Agent Configurations
+
+#### 2-Agent Pipeline
+```
+agent-alpha: implement → hand off for review → implement next task
+agent-beta:  implement → hand off for review → implement next task
+             ↕ cross-review each other's work ↕
+```
+Both agents alternate between implementing and reviewing. Each reviews the other's work.
+
+#### 3-Agent with Dedicated Reviewer (Recommended)
+```
+agent-alpha:  implement tasks only
+agent-beta:   implement tasks only
+agent-gamma:  review all → QA all → merge all
+```
+This is the **best configuration** for 3 agents:
+- Eliminates merge contention (only gamma merges)
+- Provides genuine independent review
+- Alpha and beta are never blocked waiting for review
+
+#### 4-5 Agents with Merge Queue
+```
+agent-alpha through agent-delta: implement tasks
+agent-epsilon: dedicated reviewer/QA/merge coordinator
+Merge queue enabled (see git_and_workflow_operations.md Part 7)
+```
+
+### Batch Task Assignment
+
+When managing multiple agents, pre-assign tasks in a single commit to eliminate lock contention:
+
+```
+1. Identify N eligible unblocked tasks from the current milestone
+2. Create N lock files, each with a different agentId:
+   .task-locks/<task-id-1>.lock.json → agentId: "agent-alpha"
+   .task-locks/<task-id-2>.lock.json → agentId: "agent-beta"
+   .task-locks/<task-id-3>.lock.json → agentId: "agent-gamma"
+3. Commit all locks in a single commit on main
+4. Push once (no contention — single push)
+5. Each agent creates their own feature branch and worktree
+```
+
+### Cross-Agent Review/QA Dispatch
+
+After an agent finishes implementation, the Manager dispatches review and QA to a different agent:
+
+**Dispatch Protocol:**
+1. Implementing agent sets `workStage: AWAITING_REVIEW` and pushes the feature branch
+2. Manager identifies an available reviewing agent (must differ from implementer)
+3. Manager updates the lock file with `reviewedBy: <reviewing-agent-id>`
+4. Reviewing agent performs review, writes artifact to `.task-locks/artifacts/<task-id>/review.md`
+5. If approved → Manager sets `workStage: AWAITING_QA`, assigns QA agent
+6. QA agent performs QA, writes artifact to `.task-locks/artifacts/<task-id>/qa-report.md`
+7. If passed → any agent (or the Manager) performs the final merge
+
+**Discovery:** Agents discover review/QA tasks by reading lock files from feature branches:
+```bash
+git fetch --all
+git show origin/codex/<task-id>-...:task-locks/<task-id>.lock.json
+# Look for workStage: AWAITING_REVIEW or AWAITING_QA
+```
+
+### Stale Lock Detection & Reclamation
+
+**Detection:** All agents run on the same machine. Check worktree filesystem timestamps:
+```bash
+stat -f "%Sm" -t "%Y-%m-%d %H:%M" /path/to/<task-id>-worktree/
+```
+An agent is presumed dead if its worktree has not been modified in 15+ minutes AND no new commits on its feature branch.
+
+**Reclamation (Manager only):**
+1. Verify agent is dead (check worktree + branch activity)
+2. Based on current `workStage`:
+   - `>= QA_PASSED`: Perform final merge directly
+   - `>= CODE_REVIEW_APPROVED`: Assign QA to a different agent
+   - `>= IMPLEMENTATION_COMPLETE`: Assign review to a different agent
+   - `== IMPLEMENTATION_STARTED`: Assess partial work, reassign or start fresh
+3. Update lock file with reassignment, push to main
+4. Clean up stale worktree if abandoned
+
+---
 
 ## Task state & transition tracking (lock file is the source of truth)
 - `.task-locks/<task-id>.lock.json` is required for any task in progress.
@@ -37,10 +141,12 @@ You are an AI development manager responsible for orchestrating the complete dev
 Recommended workStage values:
 - `IMPLEMENTATION_STARTED`
 - `IMPLEMENTATION_COMPLETE`
+- `AWAITING_REVIEW` – *(multi-agent)* Implementation done, pushed, waiting for a different agent
 - `CODE_REVIEW_REQUESTED`
 - `CODE_REVIEW_CHANGES_REQUESTED`
 - `CODE_REVIEW_APPROVED`
 - `CODE_REVIEW_SKIPPED`
+- `AWAITING_QA` – *(multi-agent)* Review approved, waiting for a different agent to QA
 - `QA_REQUESTED`
 - `QA_FAILED`
 - `QA_PASSED`
@@ -296,11 +402,17 @@ Run code review when required, or record an approved skip for no-code/test tasks
 
 #### 4.1 Initiate Code Review (When Required)
 
+**Multi-agent mode:** If multiple agents are available, the implementing agent should push the feature branch and set `workStage: AWAITING_REVIEW`. The Manager then assigns a **different** agent as reviewer (`reviewedBy` field). The implementing agent is free to start the next task.
+
+**Single-agent mode:** The same agent performs the review (legacy behavior).
+
 ```markdown
 ## Code Review Request
 
 **Task ID**: [Task ID]
 **Branch**: [Branch name]
+**Implemented By**: [agentId]
+**Assigned Reviewer**: [agentId — must differ from implementer in multi-agent mode]
 **Commits**: [Number of commits]
 **Files Changed**: [Number]
 **Lines Added/Removed**: [+X / -Y]
@@ -311,6 +423,7 @@ Run code review when required, or record an approved skip for no-code/test tasks
 - ✅ Coverage ≥ 80%
 - ✅ Self-review completed
 - ✅ No linting errors
+- ✅ Feature branch pushed to remote (for cross-agent review)
 ```
 
 #### 4.1b Skip Code Review (No Code/Test Changes)
@@ -331,7 +444,7 @@ The review is performed by the **Code Reviewer** role following `roles/code_revi
 - Categorize issues (Critical/Important/Suggestion)
 - Make clear decision (Approve/Request Changes/Comment)
 
-**Review Output**: `<output-folder>/<task-number>-review.md`
+**Review Output**: `<output-folder>/<task-number>/review.md`
 
 #### 4.3 Review Decision Handling
 
@@ -469,11 +582,16 @@ Rules:
 
 #### 6.1 Initiate QA Verification (When Required)
 
+**Multi-agent mode:** After code review approval, set `workStage: AWAITING_QA`. The Manager assigns a **different** agent as QA engineer (`qaBy` field). The QA agent must differ from the implementing agent.
+
 ```markdown
 ## QA Verification Request
 
 **Task ID**: [Task ID]
 **Branch**: [Branch name]
+**Implemented By**: [agentId]
+**Reviewed By**: [agentId]
+**Assigned QA**: [agentId — must differ from implementer]
 
 **QA Scope**:
 - Verify all task objectives
@@ -509,7 +627,7 @@ QA verification is performed by the **QA Engineer** role following `roles/qa_eng
 - Check documentation accuracy
 - Provide pass/fail decision with evidence
 
-**QA Output**: `<output-folder>/<task-number>-qa-report.md`
+**QA Output**: `<output-folder>/<task-number>/qa-report.md`
 
 #### 6.3 QA Decision Handling
 
@@ -624,11 +742,13 @@ Preconditions:
 **For complete merge and push procedures, see [`guides/git_and_workflow_operations.md#part-5-command-reference`](../guides/git_and_workflow_operations.md#part-5-command-reference).**
 
 Manager-level checklist:
-- [ ] Final lock update prepared (lock moved to `completed/` directory)
+- [ ] Final lock update prepared on feature branch (lock moved to `completed/` directory)
 - [ ] `status: COMPLETED`, `workStage: MERGED` set in final lock
-- [ ] Feature branch merged to `main` (fast-forward)
+- [ ] Feature branch merged to `main` (fast-forward) — use merge retry loop if push rejected
 - [ ] `main` pushed to remote successfully
-- [ ] Feature branch deleted (only after push succeeds)
+- [ ] Feature branch and worktree deleted (only after push succeeds)
+
+**Multi-agent note:** In multi-agent configurations, any agent that has completed its own tasks can perform the merge. In the 3-agent configuration with a dedicated reviewer, `agent-gamma` handles all merges to eliminate contention.
 
 Post-merge verification (recommended):
 ```bash

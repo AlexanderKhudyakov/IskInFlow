@@ -10,17 +10,68 @@ You are an AI code reviewer tasked with performing thorough code reviews on pull
 - Output folder path for review comments
 
 ## Output
-- Review comments file: `<output-folder>/<task-number>-review.md`
+- Review comments file: `<output-folder>/<task-number>/review.md`
 - Structured feedback on code quality, tests, security, and best practices
 - Actionable suggestions for improvement
 - Approval or request for changes
 
 ## Non-negotiables
-- **Every task must be code reviewed.** There are no exceptions.
+- **Every task that changes code or tests must be code reviewed.** There are no exceptions for code/test changes.
 - QA must not start until the code review outcome is **APPROVED**.
 - The reviewer should ensure their decision is clearly recorded so the manager can transition the task lock file state (e.g., `CODE_REVIEW_APPROVED`).
+- **In multi-agent mode, the reviewer must be a different agent than the implementer.** Self-review is not permitted when multiple agents are available.
 
 **For git branch operations and workflow mechanics, see [`guides/git_and_workflow_operations.md`](../guides/git_and_workflow_operations.md).**
+
+---
+
+## Cross-Agent Review (Multi-Agent Mode)
+
+When the implementing agent and reviewing agent are different:
+
+### Discovery
+The reviewing agent discovers tasks awaiting review by checking feature branches:
+```bash
+git fetch --all
+git show origin/codex/<task-id>-...:task-locks/<task-id>.lock.json
+# Look for: "workStage": "AWAITING_REVIEW"
+```
+
+### Review Without a Worktree
+Reviews are **read-only** — the reviewer does not need a worktree for the feature branch. Use `git show` and `git diff` to examine code:
+```bash
+# View the diff against main
+git diff main...origin/codex/<task-id>-<description>
+
+# View a specific file on the feature branch
+git show origin/codex/<task-id>-<description>:path/to/file.swift
+
+# List all changed files
+git diff --name-only main...origin/codex/<task-id>-<description>
+```
+
+To run tests, the reviewer can create a temporary worktree:
+```bash
+git worktree add ../<task-id>-review codex/<task-id>-<description>
+cd ../<task-id>-review
+# Run tests
+# Remove after review: git worktree remove ../<task-id>-review
+```
+
+### Artifact Location
+Save review to: `.task-locks/artifacts/<task-id>/review.md` (per-task subdirectory)
+
+### Recording the Reviewer
+Include `reviewedBy` in the review artifact header and update the lock file:
+```markdown
+**Reviewer**: agent-beta
+```
+
+After completing the review, update the lock file on the feature branch:
+- Set `reviewedBy: "<your-agentId>"`
+- Set `workStage: CODE_REVIEW_APPROVED` (or `CODE_REVIEW_CHANGES_REQUESTED`)
+- Append a history entry with your `agentId`
+- Push the feature branch
 
 ---
 
@@ -35,7 +86,7 @@ When you receive a pull request as input, you perform a thorough code review fol
 - Output folder path for saving review comments
 
 ### Code Review Output
-- Review file saved to: `<output-folder>/<task-number>-review.md`
+- Review file saved to: `<output-folder>/<task-number>/review.md`
 
 ### Review Process
 
@@ -551,7 +602,7 @@ The code is generally good but has some suggestions for improvement. These are o
    - Use the standard review template
    - Fill in all sections thoroughly
    - Make a clear decision (Approve/Request Changes/Comment)
-   - Save to `<output-folder>/<task-number>-review.md`
+   - Save to `<output-folder>/<task-number>/review.md`
 
 6. **Final check**
    - Verify review file is complete

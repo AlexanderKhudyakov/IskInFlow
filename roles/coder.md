@@ -30,16 +30,64 @@ You also perform code reviews on branches, providing constructive feedback to en
 
 ## Non-negotiables (workflow constraints)
 - The coder **must not** mark a task as COMPLETED.
-- The coder's responsibility is to reach "ready for review" (tests passing, objectives met, self-reviewed) and then request **mandatory code review**.
+- The coder's responsibility is to reach "ready for review" (tests passing, objectives met, self-reviewed) and then hand off for **mandatory code review**.
 - QA **must not** be performed until code review is approved.
-- Keep the task lock file current: whenever you reach a significant checkpoint (e.g., implementation complete, review fixes in progress), update `workState` and append a transition record.
+- Keep the task lock file current: whenever you reach a significant checkpoint (e.g., implementation complete, review fixes in progress), update `workState` and append a transition record. **Include your `agentId` in every history entry.**
 - **Always ask the user** before resuming work on an unfinished task. Never auto-resume.
+- **In multi-agent mode: the coder does NOT self-review.** After implementation, hand off to a different agent for review (see "Implementation Handoff" below).
 
 ### For Code Review
-- Review comments file: `<output-folder>/<task-number>-review.md`
+- Review comments file: `<output-folder>/<task-number>/review.md`
 - Structured feedback on code quality, tests, security, and best practices
 - Actionable suggestions for improvement
 - Approval or request for changes
+
+---
+
+## Implementation Handoff (Multi-Agent Mode)
+
+When multiple agents are working in parallel, the implementing agent hands off review to a different agent instead of self-reviewing:
+
+### After Implementation Complete
+
+```
+1. Commit all implementation + lock file update to the feature branch
+   - Set workStage: IMPLEMENTATION_COMPLETE in lock file
+   - Set implementedBy: "<your-agentId>"
+   - Append history entry with your agentId
+
+2. Push the feature branch to remote:
+   git push origin codex/<task-id>-<short-description>
+
+3. Update lock file on the feature branch:
+   - Set workStage: AWAITING_REVIEW
+   - Append history entry
+
+4. Push again:
+   git push origin codex/<task-id>-<short-description>
+
+5. Move on to the next assigned task (do NOT wait for review to finish)
+```
+
+### Responding to Review Feedback (Cross-Agent)
+
+When a different agent has reviewed your code and requested changes:
+
+```
+1. Fetch the latest feature branch:
+   git fetch origin codex/<task-id>-<short-description>
+   git merge origin/codex/<task-id>-<short-description>
+
+2. Read the review artifact: .task-locks/artifacts/<task-id>/review.md
+
+3. Address ALL feedback items (same as single-agent workflow)
+
+4. Push fixes to the feature branch
+
+5. Update lock file: workStage: CODE_REVIEW_REQUESTED (re-request review)
+
+6. Push and move on — the reviewer will pick it up again
+```
 
 ## Core Principles
 

@@ -14,6 +14,10 @@ This guide provides the definitive procedures for all git operations, task locki
 6. **Quality Gates**: Specific push points enforce code review and QA before merging
 7. **Git Worktree (Required)**: All agents MUST use `git worktree` for every task to maintain isolated working copies and prevent file/artifact contamination
 8. **Push Main After Merge**: The final merge to `main` MUST be pushed to remote before any branch cleanup. Task is not complete until remote `main` is updated
+9. **Agent Identity**: Every agent has a fixed, human-readable name (e.g., `agent-alpha`). All lock operations record which agent performed them
+10. **Cross-Agent Review**: In multi-agent mode, the implementing agent and the reviewing agent must be different. Self-review is not permitted
+11. **Minimal Main Touches**: Only two commits per task touch `main` — lock acquisition and final merge+archive. All intermediate stage transitions stay on the feature branch
+12. **Retry-Before-Fail**: Push rejections due to concurrent writes are resolved via fetch-rebase-push retry loops, not manual intervention
 
 ---
 
@@ -157,24 +161,33 @@ All agents (whether working alone or parallel) use isolated worktrees, preventin
 
 ## Part 1: Lock File Management
 
-### Lock File Format
+### Lock File Format (Schema v2)
 
-All lock files follow this schema:
+All lock files follow this schema. Fields marked *(v2)* are new for multi-agent support and are optional for backward compatibility with existing locks.
 
 ```json
 {
+  "schemaVersion": 2,
   "taskId": "<task-id>",
+  "taskName": "<human-readable task name>",
   "status": "ACTIVE | COMPLETED",
   "workStage": "<current stage>",
   "branch": "codex/<task-id>-<short-description>",
+  "milestone": "<milestone name>",
+  "planFile": "<path to task plan file>",
   "lockedAt": "<ISO timestamp>",
   "completedAt": "<ISO timestamp | null>",
-  "lockedBy": "agent",
+  "agentId": "<agent-alpha | agent-beta | agent-gamma | ...>",
+  "agentSession": "<random hex string per session>",
+  "implementedBy": "<agentId of implementing agent>",
+  "reviewedBy": "<agentId of reviewing agent | null>",
+  "qaBy": "<agentId of QA agent | null>",
   "history": [
     {
       "timestamp": "<ISO timestamp>",
       "fromStage": "<previous stage | null>",
       "toStage": "<new stage>",
+      "agentId": "<which agent performed this transition>",
       "reason": "<why this transition>",
       "gitState": {
         "branch": "<branch name>",
@@ -195,29 +208,83 @@ All lock files follow this schema:
 }
 ```
 
+#### Agent Identity Fields *(v2)*
+
+| Field | Description |
+|---|---|
+| `agentId` | Fixed human-readable name assigned by user or Manager: `agent-alpha`, `agent-beta`, `agent-gamma`, etc. |
+| `agentSession` | Short random hex (e.g., `a1b2c3d4`) generated at session startup. Distinguishes agent restarts from the same slot. |
+| `implementedBy` | `agentId` of the agent that performed implementation. Set when implementation starts. |
+| `reviewedBy` | `agentId` of the agent that performed code review. Set when review starts. **Must differ from `implementedBy`** in multi-agent mode. |
+| `qaBy` | `agentId` of the agent that performed QA. Set when QA starts. **Must differ from `implementedBy`** in multi-agent mode. |
+
 ### Valid Work Stage Values
 
+Implementation stages:
 - `IMPLEMENTATION_STARTED` – Lock acquired, implementation beginning
 - `IMPLEMENTATION_COMPLETE` – All code written and tested
-- `CODE_REVIEW_REQUESTED` – Submitted for code review
+
+Review stages:
+- `AWAITING_REVIEW` – *(v2)* Implementation complete, pushed to remote, waiting for a different agent to review
+- `CODE_REVIEW_REQUESTED` – Submitted for code review (same agent or assigned reviewer)
 - `CODE_REVIEW_CHANGES_REQUESTED` – Review feedback received, fixes in progress
 - `CODE_REVIEW_APPROVED` – Code review approved ✅
+- `CODE_REVIEW_SKIPPED` – No code/test changes, review skipped with evidence
+
+QA stages:
+- `AWAITING_QA` – *(v2)* Review approved, waiting for a different agent to QA
 - `QA_REQUESTED` – Submitted for QA verification
 - `QA_FAILED` – QA found issues, fixes in progress
 - `QA_PASSED` – QA verification passed ✅
+- `QA_SKIPPED` – No code/test changes, QA skipped with evidence
+
+Completion:
 - `MERGED` – Merged to `main` and pushed
+
+#### Stage Transitions in Multi-Agent Mode
+
+```
+IMPLEMENTATION_STARTED
+    ↓ (implementing agent)
+IMPLEMENTATION_COMPLETE
+    ↓ (implementing agent pushes feature branch)
+AWAITING_REVIEW ─────────────────────── implementing agent moves to next task
+    ↓ (reviewing agent picks up)
+CODE_REVIEW_REQUESTED
+    ↓
+CODE_REVIEW_APPROVED (or CHANGES_REQUESTED → fix loop)
+    ↓
+AWAITING_QA ─────────────────────────── reviewing agent moves to next review
+    ↓ (QA agent picks up)
+QA_REQUESTED
+    ↓
+QA_PASSED (or QA_FAILED → fix loop)
+    ↓
+MERGED
+```
 
 ### Lock File Directory Structure
 
 ```
 .task-locks/
-├── <task-id>.lock.json           # Active locks (ACTIVE status)
-├── <task-id>.lock.json           # (another active task)
-└── completed/
-    ├── <task-id>.lock.json       # Completed locks (COMPLETED status)
-    ├── <task-id>.lock.json       # (another completed task)
-    └── ... (archive of all completed tasks)
+├── <task-id>.lock.json              # Active locks (ACTIVE status)
+├── <task-id>.lock.json              # (another active task)
+├── completed/                       # Archive of completed locks
+│   ├── <task-id>.lock.json
+│   └── ...
+└── artifacts/                       # Review and QA artifacts
+    ├── <task-id>/                   # Per-task subdirectory (v2)
+    │   ├── review.md
+    │   └── qa-report.md
+    ├── <old-task-id>-review.md      # Legacy flat files (pre-v2, read-only)
+    └── <old-task-id>-qa-report.md
 ```
+
+**Artifact path convention (v2):** New tasks use per-task subdirectories:
+- Review: `.task-locks/artifacts/<task-id>/review.md`
+- QA report: `.task-locks/artifacts/<task-id>/qa-report.md`
+
+Legacy flat files (`<task-id>-review.md`) remain in place for backward compatibility and are read-only.
 
 ---
 
@@ -322,6 +389,7 @@ git fetch --prune
 - **What**: The `.task-locks/<task-id>.lock.json` commit on `main`
 - **Requirement**: MUST succeed before any implementation begins
 - **Why**: Prevents multiple agents from claiming the same task
+- **Multi-agent**: If push is rejected (another agent pushed first), use the retry loop (see [Multi-Agent Coordination](#part-7-multi-agent-coordination))
 
 ```bash
 git push origin main
@@ -332,6 +400,7 @@ git push origin main
 - **What**: All commits from feature branch + final lock archival
 - **Requirement**: MUST succeed before any branch cleanup
 - **Why**: Confirms completed task is recorded on remote and ensures other agents/CI see the work
+- **Multi-agent**: If push is rejected (another agent merged first), use the merge retry loop (see [Multi-Agent Coordination](#part-7-multi-agent-coordination))
 
 **CRITICAL: This push is non-negotiable. Task is not complete until main is pushed to remote.**
 
@@ -343,6 +412,16 @@ After this push succeeds:
 - Only then proceed with worktree cleanup
 - Only then delete feature branch
 - Only then archive lock file metadata
+
+#### Intermediate Stage Transitions — Feature Branch Only
+
+**IMPORTANT (v2):** All intermediate lock updates (`IMPLEMENTATION_COMPLETE`, `CODE_REVIEW_APPROVED`, `QA_PASSED`, etc.) are committed on the **feature branch**, NOT on `main`. They reach `main` automatically when the feature branch is FF-merged at completion.
+
+This reduces main-branch contention from ~6 commits per task to exactly 2:
+1. Lock acquisition commit (Push 1)
+2. FF-merge + archive commit (Push 2)
+
+The only exception: if the lock needs to be updated on `main` for cross-agent visibility (e.g., transitioning to `AWAITING_REVIEW` so another agent can discover it), push the feature branch to remote and update the lock file in the feature branch. Other agents read the lock from the feature branch via `git show origin/codex/<task-id>-...:path/to/lock.json`.
 
 ### Merge Strategy
 
@@ -379,7 +458,7 @@ git rebase --continue
 
 ---
 
-## Part 4: Resume Protocol
+## Part 4: Resume Protocol (Multi-Agent Aware)
 
 ### Finding Existing Locks
 
@@ -399,18 +478,26 @@ ls .task-locks/*.lock.json 2>/dev/null
 **CRITICAL:** Never auto-resume without explicit user confirmation.
 
 ```
-Found ACTIVE lock for task <task-id>.
+Found ACTIVE lock(s):
 
-Current Status:
+Task <task-id-1>:
+- Agent: <agentId>
 - Stage: <workStage>
 - Locked At: <timestamp>
 - Completed: <objectives>
 - Pending: <objectives>
 
-Do you want to resume this task? (yes/no)
+Task <task-id-2>:
+- Agent: <agentId>
+- Stage: <workStage>
+...
+
+Do you want to resume any of these tasks? (specify task ID or "no")
 ```
 
-Only proceed with resume if user answers "yes".
+Only proceed with resume if user explicitly confirms.
+
+**Multi-agent consideration:** When multiple agents are active, each agent should only resume tasks assigned to it (matching `agentId`). If an agent finds a lock with a different `agentId`, it should report the lock but NOT attempt to resume it — that is handled by the stale lock reclamation protocol (see [Part 8](#part-8-stale-lock-detection--reclamation)).
 
 ### Resuming Implementation
 
@@ -439,30 +526,62 @@ cat .task-locks/<task-id>.lock.json
 # 1. Update main
 git checkout main && git pull origin main
 
-# 2. Commit lock file
-git add .task-locks/<task-id>.lock.json
-git commit -m "chore: lock task <task-id> for implementation"
+# 2. Create lock file with agentId
+# (see Lock File Format for full schema)
 
-# 3. Push to remote (MANDATORY)
+# 3. Commit lock file
+git add .task-locks/<task-id>.lock.json
+git commit -m "chore(lock): acquire <task-id>"
+
+# 4. Push to remote (MANDATORY) — with retry loop for multi-agent
+git push origin main
+# If push rejected: see "Lock Acquisition Retry Loop" in Part 7
+
+# 5. Create feature branch and worktree
+git branch codex/<task-id>-<short-description> main
+git worktree add ../<task-id>-worktree codex/<task-id>-<short-description>
+cd ../<task-id>-worktree
+```
+
+### Batch Lock Acquisition (Multi-Agent)
+
+When the Manager pre-assigns tasks to multiple agents:
+
+```bash
+# 1. Update main
+git checkout main && git pull origin main
+
+# 2. Create ALL lock files in a single commit
+# .task-locks/<task-id-1>.lock.json  (agentId: "agent-alpha")
+# .task-locks/<task-id-2>.lock.json  (agentId: "agent-beta")
+# .task-locks/<task-id-3>.lock.json  (agentId: "agent-gamma")
+
+# 3. Commit all locks at once
+git add .task-locks/*.lock.json
+git commit -m "chore(lock): acquire tasks <id-1>, <id-2>, <id-3> for parallel execution"
+
+# 4. Push (single push — no contention)
 git push origin main
 
-# 4. Create feature branch
-git checkout -b codex/<task-id>-<short-description>
+# 5. Each agent creates their own feature branch and worktree
 ```
 
 ### Final Merge (Complete Sequence)
 
 ```bash
-# 1. Feature branch should have final lock update committed
+# 1. On the feature branch: prepare final lock update
+#    - Move lock to .task-locks/completed/<task-id>.lock.json
+#    - Set status: COMPLETED, workStage: MERGED
+#    - Commit
 
-# 2. Merge to main
+# 2. Merge to main (with retry for multi-agent)
 git checkout main && git pull origin main
 git merge --ff-only codex/<task-id>-<short-description>
 
 # 3. Push to remote (MANDATORY - DO NOT SKIP)
 git push origin main
+# If push rejected: see "Merge Retry Loop" in Part 7
 # *** CRITICAL: This push MUST succeed before proceeding ***
-# *** Verify output shows: "main -> main" ***
 
 # 4. Verify push succeeded
 git fetch origin
@@ -482,25 +601,29 @@ git fetch --prune
 
 ## Part 6: Quality Gates & Checkpoints
 
-### Required Push Points
+### Required Push Points on Main
 
-Only two push points are allowed:
+Only two push points touch `main`:
 
 1. **Lock Acquisition**: Lock commit on `main` (before feature branch creation)
-2. **Final Merge**: Feature branch merged to `main` with final lock archival (before branch cleanup)
+2. **Final Merge**: Feature branch FF-merged to `main` with lock moved to `completed/` (before branch cleanup)
+
+All intermediate lock updates (stage transitions, review/QA results) are committed on the feature branch and reach `main` via the FF-merge.
 
 ### Pre-Merge Validation
 
-Before final merge, validate:
+Before final merge, validate (reading from the feature branch):
 
 ```bash
-# Verify code review status
-cat .task-locks/<task-id>.lock.json | grep -A 1 workStage
-# Must show: CODE_REVIEW_APPROVED
+# Verify lock file shows QA_PASSED (on feature branch)
+cat .task-locks/<task-id>.lock.json | grep workStage
+# Must show: QA_PASSED or QA_SKIPPED
 
-# Verify QA status
-cat .task-locks/artifacts/<task-id>-qa-report.md
-# Must show: PASS
+# Verify review artifact exists
+ls .task-locks/artifacts/<task-id>/review.md
+
+# Verify QA report exists
+ls .task-locks/artifacts/<task-id>/qa-report.md
 
 # Verify all tests pass
 # (Run project test suite)
@@ -511,9 +634,249 @@ git status
 
 ---
 
+## Part 7: Multi-Agent Coordination
+
+This section covers the protocols that enable 2-5 agents to work in parallel safely.
+
+### Agent Naming Convention
+
+Each agent gets a fixed, human-readable name:
+
+| Agent | Name |
+|---|---|
+| First agent | `agent-alpha` |
+| Second agent | `agent-beta` |
+| Third agent | `agent-gamma` |
+| Fourth agent | `agent-delta` |
+| Fifth agent | `agent-epsilon` |
+
+The user or Manager assigns agent names before work begins. Every lock operation must include the `agentId` in the history entry.
+
+At session startup, each agent generates a random 8-character hex `agentSession` string to distinguish restarts.
+
+### Lock Acquisition Retry Loop
+
+When multiple agents acquire locks simultaneously, push rejections are expected. Since each agent creates a **unique** file (`<task-id>.lock.json`), rebase always succeeds cleanly (no content conflicts).
+
+```bash
+# Retry loop for lock acquisition push
+MAX_RETRIES=3
+RETRY=0
+
+while [ $RETRY -lt $MAX_RETRIES ]; do
+  git push origin main && break  # Success — exit loop
+
+  RETRY=$((RETRY + 1))
+  echo "Push rejected (attempt $RETRY/$MAX_RETRIES). Retrying..."
+
+  # Random jitter: sleep 0.1-0.5 seconds
+  sleep $(echo "scale=2; $RANDOM / 32768 * 0.4 + 0.1" | bc)
+
+  # Fetch and rebase (single-file-add onto different single-file-add = always clean)
+  git fetch origin main
+  git rebase origin/main
+done
+
+if [ $RETRY -eq $MAX_RETRIES ]; then
+  echo "ABORT: Lock acquisition failed after $MAX_RETRIES retries."
+  echo "Another agent may be performing a large merge. Wait 30s and try again."
+fi
+```
+
+**Why this works:** Each agent creates a unique lock file. Rebasing one unique file addition onto a different unique file addition never produces conflicts. The only failure mode is a race on push timing, which the retry handles.
+
+### Merge Retry Loop
+
+When multiple agents finish tasks simultaneously and try to FF-merge:
+
+```bash
+MAX_RETRIES=3
+RETRY=0
+
+while [ $RETRY -lt $MAX_RETRIES ]; do
+  # Step 1: Rebase feature branch on latest main
+  git checkout codex/<task-id>-<short-description>
+  git fetch origin main
+  git rebase origin/main
+
+  # Step 2: Run tests AFTER rebase (critical — catches integration breaks)
+  # <run project test suite>
+  # If tests fail: STOP. Fix the issue before retrying.
+
+  # Step 3: FF-merge to main
+  git checkout main
+  git merge --ff-only codex/<task-id>-<short-description>
+
+  # Step 4: Push
+  git push origin main && break  # Success — exit loop
+
+  RETRY=$((RETRY + 1))
+  echo "Push rejected (attempt $RETRY/$MAX_RETRIES). Another agent merged first."
+
+  # Reset main to match remote (abandon our local merge)
+  git fetch origin main
+  git reset --hard origin/main
+
+  # Wait with jitter before retrying
+  sleep $(echo "scale=0; $RANDOM % 10 + 5" | bc)
+done
+```
+
+**Critical:** The test-after-rebase step is mandatory. If Agent A's merge changed code that Agent B depends on, Agent B must catch this before pushing.
+
+### Merge Queue (Optional — for 4+ Agents)
+
+For 4+ agents, merge collisions become frequent. Introduce a claim-based merge queue:
+
+**File:** `.task-locks/merge-queue.json`
+```json
+{
+  "currentlyMerging": {
+    "taskId": "057",
+    "agentId": "agent-alpha",
+    "claimedAt": "2026-02-22T14:00:00Z"
+  },
+  "waiting": [
+    { "taskId": "058", "agentId": "agent-beta", "requestedAt": "2026-02-22T14:00:05Z" }
+  ]
+}
+```
+
+**Protocol:**
+1. Agent sets `currentlyMerging` to itself (commit + push to main, using retry loop for contention)
+2. If `currentlyMerging` is already set by another agent, add self to `waiting` list
+3. Perform merge + push
+4. Clear `currentlyMerging`, notify next in queue (they detect on next poll)
+5. Timeout: if `currentlyMerging` is stale (>5 minutes), reclaim
+
+**For 2-3 agents:** Skip the merge queue. The retry loop is sufficient.
+
+### Cross-Agent Task Handoff
+
+When Agent A finishes implementation, it can hand off review to Agent B:
+
+```
+1. Agent A: Commit all implementation + lock update to feature branch
+2. Agent A: Push feature branch to remote
+   git push origin codex/<task-id>-<short-description>
+3. Agent A: Update lock on feature branch:
+   - workStage: AWAITING_REVIEW
+   - implementedBy: "agent-alpha"
+   - reviewedBy: null (available for pickup)
+4. Agent A: Move on to next task
+
+5. Agent B: Discover tasks awaiting review:
+   - Fetch all remote branches
+   - Read lock files from feature branches for AWAITING_REVIEW status
+   git show origin/codex/<task-id>-...:task-locks/<task-id>.lock.json
+6. Agent B: Perform review on the feature branch (read-only — no worktree needed)
+7. Agent B: Commit review artifact + lock update on the feature branch
+   - workStage: CODE_REVIEW_APPROVED (or CHANGES_REQUESTED)
+   - reviewedBy: "agent-beta"
+8. Agent B: Push feature branch
+```
+
+**Same pattern for QA:** After review approval, set `AWAITING_QA`. QA agent picks it up.
+
+**Who merges?** Any agent can perform the final merge after QA passes. In the 3-agent configuration, a dedicated reviewer/QA agent handles all merges.
+
+### Agent Configurations
+
+#### 2-Agent Pipeline
+```
+agent-alpha: implement task A → implement task C → ...
+agent-beta:  implement task B → implement task D → ...
+               ↕ cross-review ↕
+agent-alpha: review task B      review task D
+agent-beta:  review task A      review task C
+```
+
+#### 3-Agent with Dedicated Reviewer
+```
+agent-alpha:  implement tasks (only)
+agent-beta:   implement tasks (only)
+agent-gamma:  review all → QA all → merge all (dedicated quality gate agent)
+```
+
+This is the **recommended** configuration for 3 agents. It eliminates merge contention (only gamma merges) and provides genuine independent review.
+
+#### 4-5 Agents with Merge Queue
+```
+agent-alpha through agent-delta: implement tasks
+agent-epsilon: dedicated reviewer/QA/merge coordinator
+Merge queue: required to serialize merges
+```
+
+---
+
+## Part 8: Stale Lock Detection & Reclamation
+
+### Liveness Detection
+
+Since all agents run on the same machine and use worktrees, use filesystem timestamps for liveness:
+
+```bash
+# Check when a worktree was last modified
+stat -f "%m" /path/to/<task-id>-worktree/
+
+# Or check for recent git activity on the feature branch
+git log -1 --format="%ci" origin/codex/<task-id>-<short-description>
+```
+
+**An agent is presumed dead if:**
+- Its worktree directory has not been modified in 15+ minutes, AND
+- No new commits on its feature branch in 15+ minutes
+
+### Lock Reclamation Protocol
+
+**Only the Manager (or the user) may reclaim locks.** Worker agents never reclaim each other's locks.
+
+```
+1. Verify agent is dead (liveness check above)
+2. Inspect the lock file for current workStage:
+
+   If workStage >= QA_PASSED:
+     → Another agent (or Manager) performs the final merge.
+     → Low risk — work is complete and verified.
+
+   If workStage >= CODE_REVIEW_APPROVED:
+     → Assign QA to a different agent.
+     → Update lock: agentId = new agent, append history entry.
+
+   If workStage >= IMPLEMENTATION_COMPLETE:
+     → Assign review to a different agent.
+     → Update lock: agentId = new agent, append history entry.
+
+   If workStage == IMPLEMENTATION_STARTED:
+     → Assess partial work on the feature branch.
+     → Option A: Reassign to a new agent who continues from the checkpoint.
+     → Option B: Abandon the branch, remove the lock, start fresh.
+
+3. Push updated lock to main.
+4. New agent picks up from the reassigned stage.
+```
+
+### Stale Lock Cleanup
+
+If a lock is reclaimed and the original work is abandoned:
+
+```bash
+# Remove the stale worktree (if it exists)
+git worktree remove ../<task-id>-worktree 2>/dev/null || true
+git worktree prune
+
+# Delete the stale feature branch
+git branch -D codex/<task-id>-<short-description> 2>/dev/null || true
+
+# Remove or update the lock file on main
+# (Manager decides: reassign or delete)
+```
+
+---
+
 ## Quick Reference: Common Commands
 
-### Basic Operations (Single Agent)
+### Basic Operations
 ```bash
 # Check for active locks
 ls .task-locks/*.lock.json
@@ -521,20 +884,35 @@ ls .task-locks/*.lock.json
 # View lock file
 cat .task-locks/<task-id>.lock.json
 
-# Push lock acquisition
+# Push lock acquisition (with retry)
 git add .task-locks/<task-id>.lock.json && \
-git commit -m "chore: lock task <task-id> for implementation" && \
+git commit -m "chore(lock): acquire <task-id>" && \
 git push origin main
+# If rejected: git fetch origin main && git rebase origin/main && git push origin main
 
-# Create feature branch
-git checkout -b codex/<task-id>-<short-description>
+# Create feature branch + worktree
+git branch codex/<task-id>-<short-description> main && \
+git worktree add ../<task-id>-worktree codex/<task-id>-<short-description> && \
+cd ../<task-id>-worktree
+```
 
-# Final merge and push
-git checkout main && git pull origin main && \
-git merge --ff-only codex/<task-id>-<short-description> && \
-git push origin main && \
-git branch -d codex/<task-id>-<short-description> && \
-git fetch --prune
+### Multi-Agent Operations
+```bash
+# Discover tasks awaiting review (from any agent)
+for branch in $(git branch -r | grep 'origin/codex/'); do
+  git show "$branch":.task-locks/*.lock.json 2>/dev/null | grep -l AWAITING_REVIEW
+done
+
+# Check all active worktrees
+git worktree list
+
+# Check liveness of another agent's worktree
+stat -f "%Sm" -t "%Y-%m-%d %H:%M" /path/to/<task-id>-worktree/
+
+# Batch lock acquisition (Manager)
+git add .task-locks/*.lock.json && \
+git commit -m "chore(lock): acquire tasks <ids> for parallel execution" && \
+git push origin main
 ```
 
 ### Worktree Operations (Required for All Agents)
@@ -563,8 +941,8 @@ git fetch --prune
 
 ## See Also
 
-- **Manager Role**: `roles/manager.md` – Task selection, locking policy
-- **Coder Role**: `roles/coder.md` – Implementation guidelines
-- **Code Review**: `roles/code_reviewer.md` – Code quality assessment
-- **QA Role**: `roles/qa_engineer.md` – Functional verification
+- **Manager Role**: `roles/manager.md` – Task selection, locking policy, multi-agent orchestration
+- **Coder Role**: `roles/coder.md` – Implementation guidelines, handoff protocol
+- **Code Review**: `roles/code_reviewer.md` – Code quality assessment, cross-agent review
+- **QA Role**: `roles/qa_engineer.md` – Functional verification, cross-agent QA
 - **Start Command**: `commands/start_or_continue_next_task.md` – Workflow entry point

@@ -22,14 +22,53 @@ You are an AI quality assurance engineer tasked with verifying that branch conta
 ## Non-negotiable gate
 - Only when QA status is **PASS** may the manager merge the branch to `main`.
 - A task cannot be marked COMPLETED until merge has happened.
+- **In multi-agent mode, the QA agent must be a different agent than the implementer.** The QA agent may be the same as the reviewer, or a dedicated QA agent.
 
 ## Mandatory Preconditions (QA cannot be skipped)
-- QA is required for **every task**.
+- QA is required for **every task that changes code or tests**.
 - QA may only begin after the implementation branch has passed **code review** (status: `APPROVED`).
 - QA must be executed on the **refined branch/commit** that includes all required review fixes.
 - If code changes after QA starts (or after QA passes), QA must be re-run or explicitly re-verified.
 
 **For git branch operations and workflow mechanics, see [`guides/git_and_workflow_operations.md`](../guides/git_and_workflow_operations.md).**
+
+---
+
+## Cross-Agent QA (Multi-Agent Mode)
+
+When the QA agent is different from the implementing agent:
+
+### Discovery
+The QA agent discovers tasks awaiting QA by checking feature branches:
+```bash
+git fetch --all
+git show origin/codex/<task-id>-...:task-locks/<task-id>.lock.json
+# Look for: "workStage": "AWAITING_QA" or "CODE_REVIEW_APPROVED"
+```
+
+### QA Worktree
+Unlike code review, QA typically requires running tests and manual verification, so a worktree is needed:
+```bash
+git worktree add ../<task-id>-qa codex/<task-id>-<description>
+cd ../<task-id>-qa
+# Run full test suite, manual verification, etc.
+# After QA: git worktree remove ../<task-id>-qa
+```
+
+### Artifact Location
+Save QA report to: `.task-locks/artifacts/<task-id>/qa-report.md` (per-task subdirectory)
+
+### Recording the QA Agent
+Include `qaBy` in the QA report header and update the lock file:
+```markdown
+**QA Engineer**: agent-gamma
+```
+
+After completing QA, update the lock file on the feature branch:
+- Set `qaBy: "<your-agentId>"`
+- Set `workStage: QA_PASSED` (or `QA_FAILED`)
+- Append a history entry with your `agentId`
+- Push the feature branch
 
 ## Core Responsibilities
 
