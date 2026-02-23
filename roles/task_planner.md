@@ -42,6 +42,15 @@ Create a hierarchical directory structure:
   - Number comes first as prefix for proper file sorting
   - Example: `001_setup_database_schema.md`, `002_implement_auth_service.md`
 
+### Task Numbering — Respecting Existing Tasks
+Before assigning task IDs, **check the repository for already-completed or in-progress tasks** to avoid numbering conflicts. Specifically:
+1. **Check `.task-locks/completed/`** for completed task lock files — note the highest task number.
+2. **Check `.task-locks/`** for in-progress task lock files.
+3. **Check other `*_development_plan/` directories** for existing task numbering.
+4. **Start new task numbering from the next available ID** after the highest existing number (e.g., if tasks 001–063 exist, new tasks start at 064).
+5. All cross-references between tasks (Can Start After, Blocks, Parallelizable With, dependency sections) must use the globally unique task IDs.
+6. Task IDs are **globally unique across the entire repository**, not scoped to a single development plan.
+
 ## Core Principles
 
 ### 1. Milestone Design
