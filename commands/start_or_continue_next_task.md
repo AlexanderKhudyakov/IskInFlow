@@ -7,6 +7,7 @@ Before executing any step in this command, consult `guides/mcp_first_tooling.md`
 This command selects the next task using a strict, lock-based workflow. Supports both single-agent and multi-agent parallel execution.
 
 Key rules:
+- **Maximize parallelism**: when multiple eligible unblocked tasks exist, launch as many agents as possible in parallel using the Task tool with multiple concurrent tool calls. Do not work tasks sequentially when they can be parallelized. Each agent gets its own task, lock, worktree, and feature branch.
 - **No pull requests** are used in this workflow. Everything is branch-based with direct merges.
 - **Lock-first**: the lock commit must be on `main` **and pushed to remote** before any implementation begins.
 - **User confirmation is required before resuming**: if an unfinished (ACTIVE) task is found, the agent **must ask the user** before continuing. Never auto-resume.
@@ -42,10 +43,11 @@ This command is intentionally strict:
   ```
 - If tasks are awaiting review/QA and this agent is the designated reviewer: perform the review/QA first, then proceed to new implementation.
 
-### Step 1: Select Next Task (Manager)
-- If no ACTIVE lock exists (or user declined to resume), select the first eligible unblocked task from the current milestone.
+### Step 1: Select Next Task(s) (Manager)
+- If no ACTIVE lock exists (or user declined to resume), identify **all** eligible unblocked tasks from the current milestone.
 - See `roles/manager.md` for task selection criteria.
-- **Multi-agent batch assignment:** If multiple agents need tasks, the Manager can batch-assign in a single commit (see `guides/git_and_workflow_operations.md` Part 5: Batch Lock Acquisition).
+- **Parallel-first**: if multiple tasks are eligible, batch-lock them all and launch a separate agent (via the Task tool) for each task **in a single message** so they run concurrently. Do not serialize tasks that have no dependency on each other.
+- **Multi-agent batch assignment:** The Manager should batch-assign in a single commit (see `guides/git_and_workflow_operations.md` Part 5: Batch Lock Acquisition), then spawn one Task-tool agent per task.
 
 ### Step 2: Lock Task on `main` (Coder)
 This step prevents multiple agents from working on the same task.
