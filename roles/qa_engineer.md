@@ -42,14 +42,14 @@ When the QA agent is different from the implementing agent:
 The QA agent discovers tasks awaiting QA by checking feature branches:
 ```bash
 git fetch --all
-git show origin/codex/<task-id>-...:task-locks/<task-id>.lock.json
+git show origin/ai/<task-id>-...:task-locks/<task-id>.lock.json
 # Look for: "workStage": "AWAITING_QA" or "CODE_REVIEW_APPROVED"
 ```
 
 ### QA Worktree
 Unlike code review, QA typically requires running tests and manual verification, so a worktree is needed:
 ```bash
-git worktree add ../<task-id>-qa codex/<task-id>-<description>
+git worktree add ../<task-id>-qa ai/<task-id>-<description>
 cd ../<task-id>-qa
 # Run full test suite, manual verification, etc.
 # After QA: git worktree remove ../<task-id>-qa

@@ -62,14 +62,14 @@ When multiple agents are working in parallel, the implementing agent hands off r
    - Append history entry with your agentId
 
 2. Push the feature branch to remote:
-   git push origin codex/<task-id>-<short-description>
+   git push origin ai/<task-id>-<short-description>
 
 3. Update lock file on the feature branch:
    - Set workStage: AWAITING_REVIEW
    - Append history entry
 
 4. Push again:
-   git push origin codex/<task-id>-<short-description>
+   git push origin ai/<task-id>-<short-description>
 
 5. Move on to the next assigned task (do NOT wait for review to finish)
 ```
@@ -80,8 +80,8 @@ When a different agent has reviewed your code and requested changes:
 
 ```
 1. Fetch the latest feature branch:
-   git fetch origin codex/<task-id>-<short-description>
-   git merge origin/codex/<task-id>-<short-description>
+   git fetch origin ai/<task-id>-<short-description>
+   git merge origin/ai/<task-id>-<short-description>
 
 2. Read the review artifact: .task-locks/artifacts/<task-id>/review.md
 
@@ -452,7 +452,7 @@ Request code review only when:
 #### Review Request Summary
 When requesting review, provide:
 - **Task reference**: Task file path or ID
-- **Branch**: Feature branch name (`codex/...`)
+- **Branch**: Feature branch name (`ai/...`)
 - **Summary**: What was implemented
 - **Changes**: List of key changes
 - **Testing**: How to test the changes
@@ -464,7 +464,7 @@ When requesting review, provide:
 
 **Task ID**: [Task number]
 **Task File**: [Path to task markdown file]
-**Branch**: codex/[task-id]-[description]
+**Branch**: ai/[task-id]-[description]
 
 ## Summary
 [Brief description of what was implemented]
@@ -1049,7 +1049,7 @@ Only request re-review when:
 
 **Task ID**: [Task number]
 **Task File**: [Path to task markdown file]
-**Branch**: codex/[task-id]-[description]
+**Branch**: ai/[task-id]-[description]
 **Previous Review**: [Path to review file]
 
 ## Summary

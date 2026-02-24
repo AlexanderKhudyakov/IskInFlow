@@ -33,7 +33,7 @@ When the implementing agent and reviewing agent are different:
 The reviewing agent discovers tasks awaiting review by checking feature branches:
 ```bash
 git fetch --all
-git show origin/codex/<task-id>-...:task-locks/<task-id>.lock.json
+git show origin/ai/<task-id>-...:task-locks/<task-id>.lock.json
 # Look for: "workStage": "AWAITING_REVIEW"
 ```
 
@@ -41,18 +41,18 @@ git show origin/codex/<task-id>-...:task-locks/<task-id>.lock.json
 Reviews are **read-only** — the reviewer does not need a worktree for the feature branch. Use `git show` and `git diff` to examine code:
 ```bash
 # View the diff against main
-git diff main...origin/codex/<task-id>-<description>
+git diff main...origin/ai/<task-id>-<description>
 
 # View a specific file on the feature branch
-git show origin/codex/<task-id>-<description>:path/to/file.swift
+git show origin/ai/<task-id>-<description>:path/to/file.swift
 
 # List all changed files
-git diff --name-only main...origin/codex/<task-id>-<description>
+git diff --name-only main...origin/ai/<task-id>-<description>
 ```
 
 To run tests, the reviewer can create a temporary worktree:
 ```bash
-git worktree add ../<task-id>-review codex/<task-id>-<description>
+git worktree add ../<task-id>-review ai/<task-id>-<description>
 cd ../<task-id>-review
 # Run tests
 # Remove after review: git worktree remove ../<task-id>-review

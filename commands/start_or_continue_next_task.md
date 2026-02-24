@@ -39,7 +39,7 @@ This command is intentionally strict:
   ```bash
   git fetch --all
   # Check feature branches for tasks awaiting review/QA
-  git show origin/codex/<task-id>-...:task-locks/<task-id>.lock.json
+  git show origin/ai/<task-id>-...:task-locks/<task-id>.lock.json
   ```
 - If tasks are awaiting review/QA and this agent is the designated reviewer: perform the review/QA first, then proceed to new implementation.
 
@@ -58,7 +58,7 @@ Summary:
 1. Create `.task-locks/<task-id>.lock.json` with `status: ACTIVE`, `workStage: IMPLEMENTATION_STARTED`, `agentId: "<your-agent-name>"`.
 2. Commit the lock file on `main`.
 3. **Push `main` to remote** — this is mandatory before proceeding. If push is rejected (another agent pushed first), use the retry loop from `guides/git_and_workflow_operations.md` Part 7.
-4. Only after push succeeds: create the feature branch `codex/<task-id>-<short-description>` from `main` and set up a worktree.
+4. Only after push succeeds: create the feature branch `ai/<task-id>-<short-description>` from `main` and set up a worktree.
 
 ### Step 3: Implement with TDD (Coder)
 - Implement the task using TDD on the feature branch (in its own worktree).
@@ -97,7 +97,22 @@ Summary:
   - Skip QA and set `workStage: QA_SKIPPED`.
   - Record skip reason + diff evidence in lock history.
 
-### Step 7: Final Merge and Push (Manager + Coder)
+### Step 7: Reflection (Mandatory)
+- **Always runs** — even for tasks that skipped review/QA (docs-only tasks may still yield discovery skills).
+- The Reflector analyzes the completed task and extracts reusable knowledge into `.claude/skills/`.
+- See `roles/reflector.md` for detailed guidelines.
+- In multi-agent mode: reflection may be performed by any agent (self-reflection is allowed).
+
+Summary:
+1. Read the task file, git diff, lock history, review artifact, and QA report.
+2. Read `.claude/skills/_index.md` to check for existing skills and avoid duplicates.
+3. Determine if any knowledge from this task is worth capturing as a skill.
+4. If yes: create/update skill files in `.claude/skills/` and update `_index.md`.
+5. Produce reflection artifact: `.task-locks/artifacts/<task-id>/reflection.md`.
+6. Update lock: `workStage: REFLECTION_COMPLETE`, append history entry.
+7. Commit reflection artifact and any skill changes to the feature branch.
+
+### Step 8: Final Merge and Push (Manager + Coder)
 **For complete step-by-step procedures, see [`guides/git_and_workflow_operations.md#part-5-command-reference`](../guides/git_and_workflow_operations.md#part-5-command-reference).**
 
 Summary:
@@ -112,9 +127,11 @@ Summary:
 ## Output
 - Task selection summary
 - Lock file committed to `main` **and pushed to remote** when task starts (with `agentId`)
-- Feature branch `codex/...` created after lock is on remote
+- Feature branch `ai/...` created after lock is on remote
 - Code review artifact (required only when code/tests changed): `.task-locks/artifacts/<task-id>/review.md`
 - QA report (required only when code/tests changed): `.task-locks/artifacts/<task-id>/qa-report.md`
+- Reflection artifact: `.task-locks/artifacts/<task-id>/reflection.md`
+- New/updated skills in `.claude/skills/` (if any)
 - For no-code/test tasks: lock history entry documenting approved review/QA skip with diff evidence
 - Final merge includes lock archival; `main` pushed to remote
 - Branch cleanup only after remote push confirmed
@@ -146,4 +163,5 @@ If `git push origin main` is rejected because another agent pushed first:
 - If no eligible task is found, report blockers and recommend next action.
 - **Never** mark a task completed based on "implementation finished". Completion requires: required quality gates + merge + push.
 - **Always ask the user** before resuming unfinished work. Never auto-resume.
+- **Reflection is mandatory for ALL tasks** — including no-code/docs-only tasks. Even tasks that skip review/QA must go through reflection.
 - In multi-agent mode, check for review/QA work before starting a new implementation task.

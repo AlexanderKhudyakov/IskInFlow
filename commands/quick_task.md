@@ -71,7 +71,7 @@ Summary:
 1. Create `.task-locks/qt-<short-name>.lock.json` with `status: ACTIVE`, `workStage: IMPLEMENTATION_STARTED`, `agentId: "<your-agent-name>"`.
 2. Commit the brief, task file, and lock file together on `main`.
 3. **Push `main` to remote** — this is mandatory before proceeding. If push is rejected, use the retry loop from `guides/git_and_workflow_operations.md` Part 7.
-4. Only after push succeeds: create the feature branch `codex/qt-<short-name>` from `main` and set up a worktree.
+4. Only after push succeeds: create the feature branch `ai/qt-<short-name>` from `main` and set up a worktree.
 
 ### Step 4: Implement with TDD (Coder)
 - Implement the task using TDD on the feature branch (in its own worktree).
@@ -147,13 +147,28 @@ Summary:
 
 - QA Engineer verifies per `roles/qa_engineer.md`.
 - Artifact: `.task-locks/artifacts/qt-<short-name>/qa-report.md`.
-- **If PASS**: transition lock to `workStage: QA_PASSED`, proceed to Step 7.
+- **If PASS**: transition lock to `workStage: QA_PASSED`, proceed to Step 7 (Reflection).
 - **If FAIL**: Coder fixes issues. Manager decides:
   - **Significant changes** (new logic, structural changes) → back to Step 5 for re-review.
   - **Minor changes** (typos, small adjustments) → re-QA only.
 - Track QA iterations in lock history.
 
-### Step 7: Final Merge and Push (Manager + Coder)
+### Step 7: Reflection (Mandatory)
+- **Always runs** — even for tasks that skipped review/QA (docs-only tasks may still yield discovery skills).
+- The Reflector analyzes the completed task and extracts reusable knowledge into `.claude/skills/`.
+- See `roles/reflector.md` for detailed guidelines.
+- In multi-agent mode: reflection may be performed by any agent (self-reflection is allowed).
+
+Summary:
+1. Read the task file, git diff, lock history, review artifact, and QA report.
+2. Read `.claude/skills/_index.md` to check for existing skills and avoid duplicates.
+3. Determine if any knowledge from this task is worth capturing as a skill.
+4. If yes: create/update skill files in `.claude/skills/` and update `_index.md`.
+5. Produce reflection artifact: `.task-locks/artifacts/qt-<short-name>/reflection.md`.
+6. Update lock: `workStage: REFLECTION_COMPLETE`, append history entry.
+7. Commit reflection artifact and any skill changes to the feature branch.
+
+### Step 8: Final Merge and Push (Manager + Coder)
 **For complete step-by-step procedures, see [`guides/git_and_workflow_operations.md#part-5-command-reference`](../guides/git_and_workflow_operations.md#part-5-command-reference).**
 
 Summary:
@@ -169,9 +184,11 @@ Summary:
 - Quick Task Brief: `.task-locks/qt-<short-name>-brief.md`
 - Task file: `.task-locks/qt-<short-name>-task.md`
 - Lock file committed to `main` **and pushed to remote** when task starts (with `agentId`)
-- Feature branch `codex/qt-<short-name>` created after lock is on remote
+- Feature branch `ai/qt-<short-name>` created after lock is on remote
 - Code review artifact (required only when code/tests changed): `.task-locks/artifacts/qt-<short-name>/review.md`
 - QA report (required only when code/tests changed): `.task-locks/artifacts/qt-<short-name>/qa-report.md`
+- Reflection artifact: `.task-locks/artifacts/qt-<short-name>/reflection.md`
+- New/updated skills in `.claude/skills/` (if any)
 - For no-code/test tasks: lock history entry documenting approved review/QA skip with diff evidence
 - Final merge includes lock archival; `main` pushed to remote
 - Branch cleanup only after remote push confirmed
@@ -180,6 +197,7 @@ Summary:
 - If the user's request is too complex for a quick task (brief exceeds ~80 lines), recommend `idea_to_dev_plan` instead.
 - **Never** mark a task completed based on "implementation finished". Completion requires: required quality gates passed + merge + push.
 - **Always ask the user** before resuming unfinished work. Never auto-resume.
-- All quick-task artifacts live in `.task-locks/` (brief, task file, lock) and `.task-locks/artifacts/qt-<short-name>/` (review, QA report) — no separate development plan directory is needed.
+- **Reflection is mandatory for ALL tasks** — including no-code/docs-only tasks. Even tasks that skip review/QA must go through reflection.
+- All quick-task artifacts live in `.task-locks/` (brief, task file, lock) and `.task-locks/artifacts/qt-<short-name>/` (review, QA report, reflection) — no separate development plan directory is needed.
 - The `qt-` prefix on all IDs and filenames ensures quick tasks never collide with numbered development-plan tasks.
 - In multi-agent mode, check for review/QA work before starting a new quick task.

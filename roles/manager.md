@@ -105,7 +105,7 @@ After an agent finishes implementation, the Manager dispatches review and QA to 
 **Discovery:** Agents discover review/QA tasks by reading lock files from feature branches:
 ```bash
 git fetch --all
-git show origin/codex/<task-id>-...:task-locks/<task-id>.lock.json
+git show origin/ai/<task-id>-...:task-locks/<task-id>.lock.json
 # Look for workStage: AWAITING_REVIEW or AWAITING_QA
 ```
 
@@ -936,7 +936,7 @@ If work must be interrupted:
 ## Workflow Decision Matrix
 
 - Task Selection → Task Locking: choose the first eligible unblocked task.
-- Task Locking → Implementation: lock commit is on `main`; then create `codex/...` branch.
+- Task Locking → Implementation: lock commit is on `main`; then create `ai/...` branch.
 - Implementation → Quality Gate Decision: classify as code/test-change or no-code/test.
 - Code/Test-Change Path: Code Review (APPROVED) → QA (PASSED) → Final Merge.
 - No-Code/Test Path: Code Review (SKIPPED with evidence) → QA (SKIPPED with evidence) → Final Merge.

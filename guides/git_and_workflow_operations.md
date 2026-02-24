@@ -8,7 +8,7 @@ This guide provides the definitive procedures for all git operations, task locki
 
 1. **Lock-First**: A task is only "taken" when the lock file is committed to `main` and pushed to remote
 2. **Push-Before-Proceed**: The lock push to remote MUST succeed before implementation begins
-3. **Feature Branches**: Implementation happens on feature branches named `codex/<task-id>-<description>`
+3. **Feature Branches**: Implementation happens on feature branches named `ai/<task-id>-<description>`
 4. **Single Source of Truth**: The lock file on `main` (remote) is authoritative for task status
 5. **Resumable Work**: Every checkpoint is recorded so work can be resumed if interrupted
 6. **Quality Gates**: Specific push points enforce code review and QA before merging
@@ -55,13 +55,13 @@ Each agent should create a separate worktree for each task:
 git worktree list
 
 # Create new worktree for a task (from main)
-git worktree add ../<task-id>-worktree codex/<task-id>-<short-description>
+git worktree add ../<task-id>-worktree ai/<task-id>-<short-description>
 
 # Navigate to worktree
 cd ../<task-id>-worktree
 
 # Verify you're in the right branch
-git branch  # Should show: * codex/<task-id>-<short-description>
+git branch  # Should show: * ai/<task-id>-<short-description>
 
 # Work in this isolated directory (tests, builds, etc.)
 # No conflicts with other agents' work
@@ -73,9 +73,9 @@ git branch  # Should show: * codex/<task-id>-<short-description>
 project-root/
 ├── .git/                          # Shared git repository (ONE per project)
 ├── main-worktree/                 # Main branch worktree (or use root)
-├── codex-023-worktree/            # Agent 1: Task 023
-├── codex-045-worktree/            # Agent 2: Task 045
-└── codex-089-worktree/            # Agent 3: Task 089
+├── ai-023-worktree/            # Agent 1: Task 023
+├── ai-045-worktree/            # Agent 2: Task 045
+└── ai-089-worktree/            # Agent 3: Task 089
 ```
 
 Each worktree has its own:
@@ -105,7 +105,7 @@ git worktree remove ../<task-id>-worktree
 git worktree prune
 
 # Delete the local branch
-git branch -d codex/<task-id>-<short-description>
+git branch -d ai/<task-id>-<short-description>
 
 # Prune stale remote-tracking branches
 git fetch --prune
@@ -114,7 +114,7 @@ git fetch --prune
 ### Worktree Best Practices
 
 1. **Create worktree per agent per task**: Don't share worktrees
-2. **Create from feature branch**: `git worktree add <path> codex/<task-id>-...`
+2. **Create from feature branch**: `git worktree add <path> ai/<task-id>-...`
 3. **Verify correct branch**: Always check `git branch` in worktree
 4. **Use absolute paths**: Makes it clear which worktree you're in
 5. **Delete after completion**: Clean up when task is done
@@ -126,8 +126,8 @@ git fetch --prune
 **Single Agent (Task 023):**
 ```bash
 # Lock acquired on main and pushed
-git branch codex/023-metrics-system main
-git worktree add ../task-023-metrics codex/023-metrics-system
+git branch ai/023-metrics-system main
+git worktree add ../task-023-metrics ai/023-metrics-system
 cd ../task-023-metrics
 # Work on task 023 here (isolated from main)
 # Build artifacts stay in this worktree
@@ -137,20 +137,20 @@ cd ../task-023-metrics
 **Multi-Agent (simultaneous work):**
 ```bash
 # Agent 1 (Task 023) - in main repo
-git branch codex/023-metrics-system main
-git worktree add ../task-023-metrics codex/023-metrics-system
+git branch ai/023-metrics-system main
+git worktree add ../task-023-metrics ai/023-metrics-system
 cd ../task-023-metrics
 # Work on task 023 here - completely isolated
 
 # Agent 2 (Task 045) - in same main repo (parallel, no conflicts)
-git branch codex/045-user-auth main
-git worktree add ../task-045-auth codex/045-user-auth
+git branch ai/045-user-auth main
+git worktree add ../task-045-auth ai/045-user-auth
 cd ../task-045-auth
 # Work on task 045 here - completely isolated, no conflicts with Agent 1
 
 # Agent 3 (Task 089) - continues pattern
-git branch codex/089-perf main
-git worktree add ../task-089-perf codex/089-perf
+git branch ai/089-perf main
+git worktree add ../task-089-perf ai/089-perf
 cd ../task-089-perf
 # Work on task 089 here - completely isolated
 ```
@@ -172,7 +172,7 @@ All lock files follow this schema. Fields marked *(v2)* are new for multi-agent 
   "taskName": "<human-readable task name>",
   "status": "ACTIVE | COMPLETED",
   "workStage": "<current stage>",
-  "branch": "codex/<task-id>-<short-description>",
+  "branch": "ai/<task-id>-<short-description>",
   "milestone": "<milestone name>",
   "planFile": "<path to task plan file>",
   "lockedAt": "<ISO timestamp>",
@@ -238,6 +238,9 @@ QA stages:
 - `QA_PASSED` – QA verification passed ✅
 - `QA_SKIPPED` – No code/test changes, QA skipped with evidence
 
+Reflection stages:
+- `REFLECTION_COMPLETE` – Reflection analysis done, skills extracted/updated
+
 Completion:
 - `MERGED` – Merged to `main` and pushed
 
@@ -259,6 +262,8 @@ AWAITING_QA ──────────────────────�
 QA_REQUESTED
     ↓
 QA_PASSED (or QA_FAILED → fix loop)
+    ↓
+REFLECTION_COMPLETE ──────────────── skills extracted, artifact created
     ↓
 MERGED
 ```
@@ -295,18 +300,18 @@ Legacy flat files (`<task-id>-review.md`) remain in place for backward compatibi
 **Feature branches** follow this pattern:
 
 ```
-codex/<task-id>-<short-description>
+ai/<task-id>-<short-description>
 ```
 
 Where:
-- `codex/` – Fixed prefix for all implementation branches
+- `ai/` – Fixed prefix for all implementation branches
 - `<task-id>` – Task identifier from task file (e.g., `023`)
 - `<short-description>` – Hyphenated, lowercase, 2-4 words summarizing the feature
 
 **Examples:**
-- `codex/023-metrics-collection-system`
-- `codex/045-user-authentication-flow`
-- `codex/089-performance-optimization`
+- `ai/023-metrics-collection-system`
+- `ai/045-user-authentication-flow`
+- `ai/089-performance-optimization`
 
 ### Creating Feature Branches and Worktrees
 
@@ -321,16 +326,16 @@ git pull origin main
 ls .task-locks/<task-id>.lock.json  # Should exist
 
 # Step 2: Create feature branch from main
-git branch codex/<task-id>-<short-description> main
+git branch ai/<task-id>-<short-description> main
 
 # Step 3: Create WORKTREE for this branch (REQUIRED for all agents)
-git worktree add ../<task-id>-worktree codex/<task-id>-<short-description>
+git worktree add ../<task-id>-worktree ai/<task-id>-<short-description>
 
 # Step 4: Navigate to worktree
 cd ../<task-id>-worktree
 
 # Step 5: Verify you're on the correct branch
-git branch  # Should show * codex/<task-id>-<short-description>
+git branch  # Should show * ai/<task-id>-<short-description>
 ```
 
 **Critical**: All agents MUST use `git worktree` for every task. This ensures isolated working copies regardless of whether working alone or in parallel, and prevents file/artifact contamination between tasks (see "Git Worktree Requirement" section above).
@@ -356,7 +361,7 @@ git worktree remove ../<task-id>-worktree
 git worktree prune
 
 # Step 5: Delete the branch reference (local)
-git branch -d codex/<task-id>-<short-description>
+git branch -d ai/<task-id>-<short-description>
 
 # Step 6: Prune stale remote-tracking branches
 git fetch --prune
@@ -370,7 +375,7 @@ git fetch origin
 git status  # Should show "Your branch is up to date with 'origin/main'"
 
 # Step 2: Delete local feature branch
-git branch -d codex/<task-id>-<short-description>
+git branch -d ai/<task-id>-<short-description>
 
 # Step 3: Prune stale remote-tracking branches
 git fetch --prune
@@ -421,7 +426,7 @@ This reduces main-branch contention from ~6 commits per task to exactly 2:
 1. Lock acquisition commit (Push 1)
 2. FF-merge + archive commit (Push 2)
 
-The only exception: if the lock needs to be updated on `main` for cross-agent visibility (e.g., transitioning to `AWAITING_REVIEW` so another agent can discover it), push the feature branch to remote and update the lock file in the feature branch. Other agents read the lock from the feature branch via `git show origin/codex/<task-id>-...:path/to/lock.json`.
+The only exception: if the lock needs to be updated on `main` for cross-agent visibility (e.g., transitioning to `AWAITING_REVIEW` so another agent can discover it), push the feature branch to remote and update the lock file in the feature branch. Other agents read the lock from the feature branch via `git show origin/ai/<task-id>-...:path/to/lock.json`.
 
 ### Merge Strategy
 
@@ -433,7 +438,7 @@ git checkout main
 git pull origin main
 
 # Merge with fast-forward (keeps linear history)
-git merge --ff-only codex/<task-id>-<short-description>
+git merge --ff-only ai/<task-id>-<short-description>
 
 # If fast-forward fails, main has diverged and needs rebase
 ```
@@ -442,7 +447,7 @@ git merge --ff-only codex/<task-id>-<short-description>
 
 ```bash
 # On feature branch, rebase on main
-git checkout codex/<task-id>-<short-description>
+git checkout ai/<task-id>-<short-description>
 git rebase main
 
 # Resolve conflicts in the files that appear
@@ -507,8 +512,8 @@ After user confirmation:
 # Step 1: Restore local state
 git checkout main
 git pull origin main
-git checkout codex/<task-id>-<short-description>
-git pull origin codex/<task-id>-<short-description> 2>/dev/null || true
+git checkout ai/<task-id>-<short-description>
+git pull origin ai/<task-id>-<short-description> 2>/dev/null || true
 
 # Step 2: Review work state
 cat .task-locks/<task-id>.lock.json
@@ -538,8 +543,8 @@ git push origin main
 # If push rejected: see "Lock Acquisition Retry Loop" in Part 7
 
 # 5. Create feature branch and worktree
-git branch codex/<task-id>-<short-description> main
-git worktree add ../<task-id>-worktree codex/<task-id>-<short-description>
+git branch ai/<task-id>-<short-description> main
+git worktree add ../<task-id>-worktree ai/<task-id>-<short-description>
 cd ../<task-id>-worktree
 ```
 
@@ -576,7 +581,7 @@ git push origin main
 
 # 2. Merge to main (with retry for multi-agent)
 git checkout main && git pull origin main
-git merge --ff-only codex/<task-id>-<short-description>
+git merge --ff-only ai/<task-id>-<short-description>
 
 # 3. Push to remote (MANDATORY - DO NOT SKIP)
 git push origin main
@@ -593,7 +598,7 @@ git worktree remove ../<task-id>-worktree
 git worktree prune
 
 # 6. Cleanup branch references
-git branch -d codex/<task-id>-<short-description>
+git branch -d ai/<task-id>-<short-description>
 git fetch --prune
 ```
 
@@ -615,9 +620,9 @@ All intermediate lock updates (stage transitions, review/QA results) are committ
 Before final merge, validate (reading from the feature branch):
 
 ```bash
-# Verify lock file shows QA_PASSED (on feature branch)
+# Verify lock file shows REFLECTION_COMPLETE (on feature branch)
 cat .task-locks/<task-id>.lock.json | grep workStage
-# Must show: QA_PASSED or QA_SKIPPED
+# Must show: REFLECTION_COMPLETE
 
 # Verify review artifact exists
 ls .task-locks/artifacts/<task-id>/review.md
@@ -695,7 +700,7 @@ RETRY=0
 
 while [ $RETRY -lt $MAX_RETRIES ]; do
   # Step 1: Rebase feature branch on latest main
-  git checkout codex/<task-id>-<short-description>
+  git checkout ai/<task-id>-<short-description>
   git fetch origin main
   git rebase origin/main
 
@@ -705,7 +710,7 @@ while [ $RETRY -lt $MAX_RETRIES ]; do
 
   # Step 3: FF-merge to main
   git checkout main
-  git merge --ff-only codex/<task-id>-<short-description>
+  git merge --ff-only ai/<task-id>-<short-description>
 
   # Step 4: Push
   git push origin main && break  # Success — exit loop
@@ -758,7 +763,7 @@ When Agent A finishes implementation, it can hand off review to Agent B:
 ```
 1. Agent A: Commit all implementation + lock update to feature branch
 2. Agent A: Push feature branch to remote
-   git push origin codex/<task-id>-<short-description>
+   git push origin ai/<task-id>-<short-description>
 3. Agent A: Update lock on feature branch:
    - workStage: AWAITING_REVIEW
    - implementedBy: "agent-alpha"
@@ -768,7 +773,7 @@ When Agent A finishes implementation, it can hand off review to Agent B:
 5. Agent B: Discover tasks awaiting review:
    - Fetch all remote branches
    - Read lock files from feature branches for AWAITING_REVIEW status
-   git show origin/codex/<task-id>-...:task-locks/<task-id>.lock.json
+   git show origin/ai/<task-id>-...:task-locks/<task-id>.lock.json
 6. Agent B: Perform review on the feature branch (read-only — no worktree needed)
 7. Agent B: Commit review artifact + lock update on the feature branch
    - workStage: CODE_REVIEW_APPROVED (or CHANGES_REQUESTED)
@@ -820,7 +825,7 @@ Since all agents run on the same machine and use worktrees, use filesystem times
 stat -f "%m" /path/to/<task-id>-worktree/
 
 # Or check for recent git activity on the feature branch
-git log -1 --format="%ci" origin/codex/<task-id>-<short-description>
+git log -1 --format="%ci" origin/ai/<task-id>-<short-description>
 ```
 
 **An agent is presumed dead if:**
@@ -835,8 +840,12 @@ git log -1 --format="%ci" origin/codex/<task-id>-<short-description>
 1. Verify agent is dead (liveness check above)
 2. Inspect the lock file for current workStage:
 
+   If workStage == REFLECTION_COMPLETE:
+     → Skip to final merge (Step 8).
+     → Lowest risk — all quality gates and reflection are done.
+
    If workStage >= QA_PASSED:
-     → Another agent (or Manager) performs the final merge.
+     → Perform reflection, then final merge.
      → Low risk — work is complete and verified.
 
    If workStage >= CODE_REVIEW_APPROVED:
@@ -866,7 +875,7 @@ git worktree remove ../<task-id>-worktree 2>/dev/null || true
 git worktree prune
 
 # Delete the stale feature branch
-git branch -D codex/<task-id>-<short-description> 2>/dev/null || true
+git branch -D ai/<task-id>-<short-description> 2>/dev/null || true
 
 # Remove or update the lock file on main
 # (Manager decides: reassign or delete)
@@ -891,15 +900,15 @@ git push origin main
 # If rejected: git fetch origin main && git rebase origin/main && git push origin main
 
 # Create feature branch + worktree
-git branch codex/<task-id>-<short-description> main && \
-git worktree add ../<task-id>-worktree codex/<task-id>-<short-description> && \
+git branch ai/<task-id>-<short-description> main && \
+git worktree add ../<task-id>-worktree ai/<task-id>-<short-description> && \
 cd ../<task-id>-worktree
 ```
 
 ### Multi-Agent Operations
 ```bash
 # Discover tasks awaiting review (from any agent)
-for branch in $(git branch -r | grep 'origin/codex/'); do
+for branch in $(git branch -r | grep 'origin/ai/'); do
   git show "$branch":.task-locks/*.lock.json 2>/dev/null | grep -l AWAITING_REVIEW
 done
 
@@ -921,8 +930,8 @@ git push origin main
 git worktree list
 
 # Create feature branch and worktree (after lock is pushed)
-git branch codex/<task-id>-<short-description> main && \
-git worktree add ../<task-id>-worktree codex/<task-id>-<short-description> && \
+git branch ai/<task-id>-<short-description> main && \
+git worktree add ../<task-id>-worktree ai/<task-id>-<short-description> && \
 cd ../<task-id>-worktree
 
 # Verify correct branch
@@ -933,7 +942,7 @@ cd /path/to/main/repo && \
 git fetch origin && \
 git worktree remove ../<task-id>-worktree && \
 git worktree prune && \
-git branch -d codex/<task-id>-<short-description> && \
+git branch -d ai/<task-id>-<short-description> && \
 git fetch --prune
 ```
 
@@ -945,4 +954,5 @@ git fetch --prune
 - **Coder Role**: `roles/coder.md` – Implementation guidelines, handoff protocol
 - **Code Review**: `roles/code_reviewer.md` – Code quality assessment, cross-agent review
 - **QA Role**: `roles/qa_engineer.md` – Functional verification, cross-agent QA
+- **Reflector Role**: `roles/reflector.md` – Post-task knowledge capture and skill extraction
 - **Start Command**: `commands/start_or_continue_next_task.md` – Workflow entry point
