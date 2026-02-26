@@ -615,6 +615,18 @@ Only two push points touch `main`:
 
 All intermediate lock updates (stage transitions, review/QA results) are committed on the feature branch and reach `main` via the FF-merge.
 
+### Artifact Commit Checklist
+
+**All task artifacts must be committed before merging.** At the end of a task, run `git status` and ensure no `.task-locks/` files are untracked. Required artifacts per task:
+
+- `qt-<name>-brief.md` and `qt-<name>-task.md` (or `<task-id>` equivalents) — committed when locking
+- `.task-locks/artifacts/qt-<name>/review.md` — committed after code review
+- `.task-locks/artifacts/qt-<name>/qa-report.md` — committed after QA
+- `.task-locks/artifacts/qt-<name>/reflection.md` — committed after reflection
+- Any intermediate implementation notes or summaries
+
+Forgetting to commit artifacts leaves orphaned untracked files and breaks the audit trail. Always stage everything in `.task-locks/` before the final merge commit.
+
 ### Pre-Merge Validation
 
 Before final merge, validate (reading from the feature branch):
@@ -633,7 +645,7 @@ ls .task-locks/artifacts/<task-id>/qa-report.md
 # Verify all tests pass
 # (Run project test suite)
 
-# Verify no uncommitted changes
+# Verify no uncommitted changes — especially in .task-locks/
 git status
 ```
 
