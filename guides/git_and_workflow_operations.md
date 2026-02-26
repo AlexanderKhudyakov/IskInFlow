@@ -420,27 +420,25 @@ After this push succeeds:
 
 #### Intermediate Stage Transitions — Feature Branch Only
 
-**IMPORTANT (v2):** All intermediate lock updates (`IMPLEMENTATION_COMPLETE`, `CODE_REVIEW_APPROVED`, `QA_PASSED`, etc.) are committed on the **feature branch**, NOT on `main`. They reach `main` automatically when the feature branch is FF-merged at completion.
+**IMPORTANT (v2):** All intermediate lock updates (`IMPLEMENTATION_COMPLETE`, `CODE_REVIEW_APPROVED`, `QA_PASSED`, etc.) are committed on the **feature branch**, NOT on `main`. They reach `main` automatically when the feature branch is merged at completion.
 
 This reduces main-branch contention from ~6 commits per task to exactly 2:
 1. Lock acquisition commit (Push 1)
-2. FF-merge + archive commit (Push 2)
+2. Merge commit + archive (Push 2)
 
 The only exception: if the lock needs to be updated on `main` for cross-agent visibility (e.g., transitioning to `AWAITING_REVIEW` so another agent can discover it), push the feature branch to remote and update the lock file in the feature branch. Other agents read the lock from the feature branch via `git show origin/ai/<task-id>-...:path/to/lock.json`.
 
 ### Merge Strategy
 
-The workflow uses **fast-forward merge** for clean history:
+The workflow uses **non-fast-forward merge** (`--no-ff`) to always produce a merge commit, preserving a clear record of when each feature branch landed on `main`:
 
 ```bash
 # Switch to main and pull latest
 git checkout main
 git pull origin main
 
-# Merge with fast-forward (keeps linear history)
-git merge --ff-only ai/<task-id>-<short-description>
-
-# If fast-forward fails, main has diverged and needs rebase
+# Merge with no-fast-forward (always creates a merge commit)
+git merge --no-ff ai/<task-id>-<short-description>
 ```
 
 ### Handling Merge Conflicts
@@ -581,7 +579,7 @@ git push origin main
 
 # 2. Merge to main (with retry for multi-agent)
 git checkout main && git pull origin main
-git merge --ff-only ai/<task-id>-<short-description>
+git merge --no-ff ai/<task-id>-<short-description>
 
 # 3. Push to remote (MANDATORY - DO NOT SKIP)
 git push origin main
@@ -611,9 +609,9 @@ git fetch --prune
 Only two push points touch `main`:
 
 1. **Lock Acquisition**: Lock commit on `main` (before feature branch creation)
-2. **Final Merge**: Feature branch FF-merged to `main` with lock moved to `completed/` (before branch cleanup)
+2. **Final Merge**: Feature branch merged to `main` with `--no-ff` with lock moved to `completed/` (before branch cleanup)
 
-All intermediate lock updates (stage transitions, review/QA results) are committed on the feature branch and reach `main` via the FF-merge.
+All intermediate lock updates (stage transitions, review/QA results) are committed on the feature branch and reach `main` via the final merge.
 
 ### Artifact Commit Checklist
 
@@ -704,7 +702,7 @@ fi
 
 ### Merge Retry Loop
 
-When multiple agents finish tasks simultaneously and try to FF-merge:
+When multiple agents finish tasks simultaneously and try to merge:
 
 ```bash
 MAX_RETRIES=3
@@ -720,9 +718,9 @@ while [ $RETRY -lt $MAX_RETRIES ]; do
   # <run project test suite>
   # If tests fail: STOP. Fix the issue before retrying.
 
-  # Step 3: FF-merge to main
+  # Step 3: Merge to main (no-ff — always creates a merge commit)
   git checkout main
-  git merge --ff-only ai/<task-id>-<short-description>
+  git merge --no-ff ai/<task-id>-<short-description>
 
   # Step 4: Push
   git push origin main && break  # Success — exit loop
