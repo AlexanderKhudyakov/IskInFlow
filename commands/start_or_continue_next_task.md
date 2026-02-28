@@ -30,7 +30,7 @@ This command is intentionally strict:
   - Check if the lock's `agentId` matches this agent. Only resume tasks assigned to you.
   - Summarize prior progress: `workStage`, `agentId`, last checkpoint, completed objectives.
   - **Ask the user whether to resume**. Do not proceed without explicit confirmation.
-- If ACTIVE locks exist for a **different** agent: report them but do NOT resume. Those belong to another agent or require stale lock reclamation (see `roles/manager.md`).
+- If ACTIVE locks exist for a **different** agent: report them but do NOT resume. Those belong to another agent or require stale lock reclamation (see `guides/git_and_workflow_operations.md` Part 8).
 - If multiple ACTIVE locks exist for this agent, stop and ask the user how to proceed.
 
 ### Step 0b: Check for Review/QA Work (Multi-Agent)
@@ -45,7 +45,7 @@ This command is intentionally strict:
 
 ### Step 1: Select Next Task(s) (Manager)
 - If no ACTIVE lock exists (or user declined to resume), identify **all** eligible unblocked tasks from the current milestone.
-- See `roles/manager.md` for task selection criteria.
+- See `guides/git_and_workflow_operations.md` Part 9 for task selection criteria.
 - **Parallel-first**: if multiple tasks are eligible, batch-lock them all and launch a separate agent (via the Task tool) for each task **in a single message** so they run concurrently. Do not serialize tasks that have no dependency on each other.
 - **Multi-agent batch assignment:** The Manager should batch-assign in a single commit (see `guides/git_and_workflow_operations.md` Part 5: Batch Lock Acquisition), then spawn one Task-tool agent per task.
 

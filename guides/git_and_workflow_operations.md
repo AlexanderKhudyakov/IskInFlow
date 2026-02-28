@@ -958,9 +958,21 @@ git fetch --prune
 
 ---
 
+## Part 9: Manager Responsibilities
+
+The Manager (human or AI agent orchestrating the workflow) has exclusive authority over these decisions:
+
+- **Only the Manager may mark a task as COMPLETED** — and only after required quality gates are satisfied and the branch is merged to `main`.
+- **Strict role delegation**: The Manager must never write code or perform code reviews itself. All code changes go to the **Coder** role; all reviews go to the **Code Reviewer** role.
+- **Only the Manager (or the user) may reclaim stale locks.** Worker agents never reclaim each other's locks (see [Part 8](#part-8-stale-lock-detection--reclamation)).
+- **Task selection**: Select the first eligible unblocked task — not completed, not locked, all prerequisites satisfied, belongs to current milestone.
+- **Quality gate classification**: Inspect the branch diff to determine if code/tests changed. Code/test changes require review + QA. No-code/test changes may skip with recorded evidence (`git diff --name-only`).
+- **Error escalation**: If code review or QA fails after 3+ iterations, review feedback patterns, consider architectural review or task clarification. If no eligible tasks are available, report blockers.
+
+---
+
 ## See Also
 
-- **Manager Role**: `roles/manager.md` – Task selection, locking policy, multi-agent orchestration
 - **Coder Role**: `roles/coder.md` – Implementation guidelines, handoff protocol
 - **Code Review**: `roles/code_reviewer.md` – Code quality assessment, cross-agent review
 - **QA Role**: `roles/qa_engineer.md` – Functional verification, cross-agent QA
