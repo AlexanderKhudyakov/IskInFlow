@@ -11,9 +11,9 @@ Convert a raw idea into a product spec, technical spec, and detailed development
 - Short name for the idea (used in filenames)
 
 ## Steps
-1. **Product Manager**: Follow `roles/product_manager.md` to produce `<idea-short-name>_idea.md`.
-2. **Tech Lead**: Follow `roles/tech_lead.md` to produce `<idea-short-name>_tech_spec.md` based on the product spec.
-3. **Task Planner**: Follow `roles/task_planner.md` to produce `<tech-spec-name>_development_plan/` with milestones and task files.
+1. **Phase 1 — Product Analysis**: Follow `roles/planner.md` Phase 1 to produce `<idea-short-name>_idea.md`.
+2. **Phase 2 — Technical Specification**: Follow `roles/planner.md` Phase 2 to produce `<idea-short-name>_tech_spec.md` based on the product spec.
+3. **Phase 3 — Task Breakdown**: Follow `roles/planner.md` Phase 3 to produce `<tech-spec-name>_development_plan/` with milestones and task files.
 
 ## Output Location
 All artifacts **must** be placed in the repository's `docs/` folder, following the established structure:

@@ -58,7 +58,7 @@ This step condenses the Product Manager, Tech Lead, and Task Planner roles into 
 5. **Confirm the brief with the user** before proceeding. Do not continue without explicit approval.
 
 ### Step 2: Create Task File (Manager)
-- Produce `.task-locks/qt-<short-name>-task.md` using the standard task file structure from `roles/task_planner.md`.
+- Produce `.task-locks/qt-<short-name>-task.md` using the standard task file structure from `roles/planner.md` Phase 3.
 - Task ID uses the `qt-<short-name>` format (e.g., `qt-fix-login-bug`).
 - The task file should be appropriately sized for the work — quick tasks don't need all 18 sections from the full template. Include at minimum: Task Header, Overview, Objectives, Implementation Details, Testing Requirements, and Acceptance Criteria.
 
