@@ -32,15 +32,6 @@ This command is intentionally strict:
 
 ## Steps
 
-### Step 0: Resume-first Check (Manager)
-- Pull latest `main` and check for any `.task-locks/qt-*.lock.json` with `status: ACTIVE`.
-- If an ACTIVE lock exists:
-  - Check if the lock's `agentId` matches this agent. Only resume tasks assigned to you.
-  - Summarize prior progress: `workStage`, `agentId`, last checkpoint, completed objectives.
-  - **Ask the user whether to resume**. Do not proceed without explicit confirmation.
-- If ACTIVE locks exist for a **different** agent: report them but do NOT resume.
-- If multiple ACTIVE locks exist for this agent, stop and ask the user how to proceed.
-
 ### Step 1: Understand and Plan (Manager)
 This step condenses the Product Manager, Tech Lead, and Task Planner roles into one lightweight planning step.
 
@@ -62,7 +53,21 @@ This step condenses the Product Manager, Tech Lead, and Task Planner roles into 
 - Task ID uses the `qt-<short-name>` format (e.g., `qt-fix-login-bug`).
 - The task file should be appropriately sized for the work — quick tasks don't need all 18 sections from the full template. Include at minimum: Task Header, Overview, Objectives, Implementation Details, Testing Requirements, and Acceptance Criteria.
 
-### Step 3: Lock Task on `main` (Coder)
+### Step 3: Active Task Check and Lock on `main` (Manager + Coder)
+Before locking and starting implementation, check for existing active quick tasks.
+
+**Active Task Check:**
+- Pull latest `main` and check for any `.task-locks/qt-*.lock.json` with `status: ACTIVE`.
+- If an ACTIVE lock exists:
+  - Check if the lock's `agentId` matches this agent. Only resume tasks assigned to you.
+  - Summarize prior progress: `workStage`, `agentId`, last checkpoint, completed objectives.
+  - **Ask the user whether to resume the existing task or proceed with the new one**. Do not proceed without explicit confirmation.
+  - If the user chooses to resume: skip to the appropriate step based on the lock's `workStage`.
+- If ACTIVE locks exist for a **different** agent: report them but do NOT resume.
+- If multiple ACTIVE locks exist for this agent, stop and ask the user how to proceed.
+
+**Lock Creation (proceeds only if no task was resumed):**
+
 This step prevents multiple agents from working on the same task.
 
 **For complete step-by-step procedures, see [`guides/git_and_workflow_operations.md#part-5-command-reference`](../guides/git_and_workflow_operations.md#part-5-command-reference).**
