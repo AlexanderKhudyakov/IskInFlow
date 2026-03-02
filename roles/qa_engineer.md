@@ -56,7 +56,9 @@ After completing QA, update the lock file on the feature branch:
 ### Phase 1: Preparation
 Read the task file thoroughly. Understand all objectives, acceptance criteria, edge cases, and error scenarios. Set up the test environment and create a test plan.
 
-### Phase 2: Automated Test Verification
+### Phase 2: Automated Test Verification (authoritative test run)
+This is the **definitive** test execution for the task — run on the final commit that includes all review fixes. Neither the coder nor the code reviewer re-run tests at this point; QA owns test execution.
+
 1. Run all test suites (unit, integration, e2e) — document total/passed/failed/skipped
 2. Check test coverage — must be ≥ 80%; critical paths should have higher coverage
 3. Analyze failures — mark as CRITICAL if tests fail

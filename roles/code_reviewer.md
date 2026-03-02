@@ -42,11 +42,7 @@ git show origin/ai/<task-id>-<description>:path/to/file     # View specific file
 git diff --name-only main...origin/ai/<task-id>-<description> # List changed files
 ```
 
-To run tests, create a temporary worktree:
-```bash
-git worktree add ../<task-id>-review ai/<task-id>-<description>
-# Run tests, then: git worktree remove ../<task-id>-review
-```
+> **Do NOT re-run tests or build.** The coder confirmed tests pass; QA will run the authoritative test suite on the final commit. Code review is a reading exercise.
 
 ### Artifact & Lock Update
 Save review to: `.task-locks/artifacts/<task-id>/review.md`
@@ -72,18 +68,18 @@ Examine implementation code, test code, configuration changes, and documentation
 ### 3. Evaluate Against Standards
 
 #### Functionality
-- [ ] All task objectives implemented; all acceptance criteria met
-- [ ] Edge cases and error scenarios handled
+- [ ] Code structurally addresses task objectives (full acceptance-criteria verification is QA's job)
+- [ ] Edge cases and error scenarios handled in code
 
 #### Code Quality
 - [ ] SOLID, KISS, DRY, YAGNI principles followed
 - [ ] Code is readable, maintainable; naming is clear and consistent
 - [ ] Functions are appropriately sized and focused; no code smells
 
-#### Testing
-- [ ] All tests passing; coverage ≥ 80% for new code
-- [ ] Tests cover happy paths, edge cases, and error scenarios
+#### Testing (review by reading — do NOT re-run tests; QA runs the authoritative suite)
+- [ ] Tests exist for new/changed code and cover happy paths, edge cases, and error scenarios
 - [ ] Tests are independent, repeatable, and descriptively named
+- [ ] Test assertions are meaningful (not just "no crash")
 
 #### Security
 - [ ] Input validation and output sanitization
@@ -98,8 +94,7 @@ Examine implementation code, test code, configuration changes, and documentation
 - [ ] Code is self-documenting; complex logic has comments
 - [ ] Public APIs documented; README/API docs updated if needed
 
-#### Standards Compliance
-- [ ] **No linting errors** — linter passes with zero violations
+#### Standards Compliance (verify by reading — coder already ran linter)
 - [ ] **No linter suppression comments** (`swiftlint:disable`, `// nolint`, etc.) — flag as Critical if found
 - [ ] No debug code, commented-out code; proper error handling
 

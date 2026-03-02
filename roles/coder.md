@@ -140,16 +140,9 @@ Run the linter on all changed files, fix ALL violations by modifying code (never
 | `dict[key]!` | `dict[key, default: defaultValue]` or `guard let value = dict[key]` |
 | `array.first!` | `guard let first = array.first else { preconditionFailure("...") }` |
 
-### Phase 6: Skill Capture
+### Phase 6: Self-Review & Ready for Review
 
-Before moving to review, consider whether you discovered anything worth saving:
-- Did you spend >2 minutes tracing a non-obvious code path?
-- Did you figure out a procedure that isn't documented?
-- Did you map out which files are involved in a feature area?
-
-If yes, create a skill in `.claude/skills/` (see `_index.md` for the template) and add it to the index table.
-
-### Phase 7: Self-Review & Ready for Review
+> **Skill capture is handled by the Reflector role after QA passes.** Do not create skills here — focus on implementation quality.
 
 Before requesting code review, verify:
 - [ ] All task objectives complete; all acceptance criteria met
