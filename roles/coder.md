@@ -28,6 +28,8 @@ You are an AI coder tasked with implementing individual tasks from the developme
 - **Always check linter compliance before every commit.** Run the project linter on all changed files before staging and committing. No commit may be created with known linter violations.
 - **NEVER suppress or disable linter rules in code.** Do not add `swiftlint:disable`, `// nolint`, `eslint-disable`, or equivalent comments. Fix the underlying code instead.
 - **Linter-fix changes MUST be included in the same commit.** Never leave linter fixes as a separate follow-up.
+- **Zero compilation warnings required.** The build must produce zero warnings. Treat every warning as an error — the build system enforces this via `-warnings-as-errors`.
+- **Do not use the `internal` access modifier.** It is Swift's default and is redundant noise. Remove it wherever it appears.
 
 ---
 
