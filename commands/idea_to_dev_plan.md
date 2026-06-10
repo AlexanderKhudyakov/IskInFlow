@@ -16,10 +16,10 @@ Convert a raw idea into a product spec, technical spec, and detailed development
 3. **Phase 3 — Task Breakdown**: Follow `roles/planner.md` Phase 3 to produce `<tech-spec-name>_development_plan/` with milestones and task files.
 
 ## Output Location
-All artifacts **must** be placed in the repository's `docs/` folder, following the established structure:
+All artifacts **must** be placed in the host project's documented workflow locations. **The host project defines these locations in its `CLAUDE.md`** (look for a "Workflow locations" or similar section); read it before creating any files. The artifacts follow this structure, rooted wherever the host project keeps them (`<docs-root>` below):
 
 ```
-docs/
+<docs-root>/
 ├── ideas/
 │   └── <idea-short-name>_idea.md
 ├── tech-specs/
@@ -33,18 +33,14 @@ docs/
     └── ...
 ```
 
-- **Product specs** → `docs/ideas/`
-- **Technical specs** → `docs/tech-specs/`
-- **Development plans** → `docs/<tech-spec-name>_development_plan/`
-
-Never place these artifacts in the repository root.
+Never place these artifacts in the repository root. If the host `CLAUDE.md` does not define the locations, ask the user where they should live before proceeding.
 
 ## Output
-- `docs/ideas/<idea-short-name>_idea.md`
-- `docs/tech-specs/<idea-short-name>_tech_spec.md`
-- `docs/<tech-spec-name>_development_plan/` directory with milestone/task structure
+- `<docs-root>/ideas/<idea-short-name>_idea.md`
+- `<docs-root>/tech-specs/<idea-short-name>_tech_spec.md`
+- `<docs-root>/<tech-spec-name>_development_plan/` directory with milestone/task structure
 
 ## Notes
 - If any required input is missing or ambiguous, ask for clarification before proceeding.
 - Reuse existing files if they already exist, and only update what is necessary.
-- Check the existing `docs/` folder structure before creating files to stay consistent with the repository conventions.
+- Check the host project's existing docs folder structure before creating files to stay consistent with the repository conventions.

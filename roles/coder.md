@@ -28,8 +28,8 @@ You are an AI coder tasked with implementing individual tasks from the developme
 - **Always check linter compliance before every commit.** Run the project linter on all changed files before staging and committing. No commit may be created with known linter violations.
 - **NEVER suppress or disable linter rules in code.** Do not add `swiftlint:disable`, `// nolint`, `eslint-disable`, or equivalent comments. Fix the underlying code instead.
 - **Linter-fix changes MUST be included in the same commit.** Never leave linter fixes as a separate follow-up.
-- **Zero compilation warnings required.** The build must produce zero warnings. Treat every warning as an error — the build system enforces this via `-warnings-as-errors`.
-- **Do not use the `internal` access modifier.** It is Swift's default and is redundant noise. Remove it wherever it appears.
+- **Zero compilation warnings required.** The build must produce zero warnings. Treat every warning as an error (enable the build system's warnings-as-errors mode where available).
+- **Follow the host project's language/code-style rules.** Language-specific conventions (access modifiers, idioms, safe patterns) are defined by the host project's guidelines and `.claude/skills/` — consult them before writing code.
 
 ---
 
@@ -133,14 +133,9 @@ Never write production code without a failing test first.
 
 Run the linter on all changed files, fix ALL violations by modifying code (never suppress), stage fixes together with your work, and re-run to verify zero violations.
 
-#### Common Safe Patterns (Swift)
-| Violation | Fix |
-|---|---|
-| `UnicodeScalar(0x4E00)!` | `let fallback: UnicodeScalar = "\u{4E00}"` |
-| `URL(string: "...")!` | `guard let url = URL(string: "...") else { preconditionFailure("...") }` |
-| `array.min(by:)!` | `guard let best = array.min(by:) else { preconditionFailure("...") }` |
-| `dict[key]!` | `dict[key, default: defaultValue]` or `guard let value = dict[key]` |
-| `array.first!` | `guard let first = array.first else { preconditionFailure("...") }` |
+#### Common Safe Patterns
+
+Language-specific safe patterns (e.g. how to replace force-unwraps, unsafe casts, or unchecked indexing) are documented in the host project's code-style guidelines — consult them when fixing linter violations.
 
 ### Phase 6: Self-Review & Ready for Review
 
