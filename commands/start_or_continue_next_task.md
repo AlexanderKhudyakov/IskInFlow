@@ -75,6 +75,10 @@ Summary:
 
 ### Step 5: Code Review (Conditional)
 - If task changes code/tests:
+  - **Review is read-only — the reviewer must NOT build or run tests** (see `roles/code_reviewer.md`
+    Non-negotiables). QA (Step 6) builds everything and runs the authoritative suite. When the manager
+    writes the reviewer's brief, it must not instruct the reviewer to run suites, xcodebuild, or any
+    build/test toolchain — reviewer briefs point at the diff and the quality checklist only.
   - **Multi-agent**: Set `workStage: AWAITING_REVIEW`, push feature branch. A different agent performs the review. Implementing agent is free to start the next task.
   - **Single-agent**: Same agent performs review (legacy behavior).
   - Produce review artifact: `.task-locks/artifacts/<task-number>/review.md`.
