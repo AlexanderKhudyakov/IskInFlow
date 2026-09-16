@@ -38,6 +38,10 @@ You are an AI code reviewer tasked with performing thorough code reviews on pull
 
 ## Cross-Agent Review (Multi-Agent Mode)
 
+**In single-agent mode, review is still cross-context by default**: the Manager spawns a fresh subagent with this role brief — it sees the diff, the task file, and the checklist, never the implementation conversation. Record the reviewing context in the lock (`reviewedBy`). Self-review by the implementing context is a labeled `self-fallback` last resort and a process smell for the retrospective.
+
+Review artifacts must record their **round number**; after 2 rounds ending in `REQUEST_CHANGES` the Manager escalates to the user (`guides/pipeline.md`).
+
 ### Discovery
 ```bash
 git fetch --all

@@ -23,13 +23,14 @@ You are an AI coder tasked with implementing individual tasks from the developme
 - Keep the task lock file current: whenever you reach a significant checkpoint, update `workState` and append a transition record. **Include your `agentId` in every history entry.**
 - **Always ask the user** before resuming work on an unfinished task. Never auto-resume.
 - **In multi-agent mode: the coder does NOT self-review.** After implementation, hand off to a different agent for review (see "Implementation Handoff" below).
+- **Cross-context review is the default in every mode**: a fresh subagent (or separate top-level agent) reviews the diff without the implementation conversation. Self-review by the implementing context is a labeled `self-fallback` last resort only (see `guides/pipeline.md`).
 
 ### Mandatory Linting Rules
 - **Always check linter compliance before every commit.** Run the project linter on all changed files before staging and committing. No commit may be created with known linter violations.
 - **NEVER suppress or disable linter rules in code.** Do not add `swiftlint:disable`, `// nolint`, `eslint-disable`, or equivalent comments. Fix the underlying code instead.
 - **Linter-fix changes MUST be included in the same commit.** Never leave linter fixes as a separate follow-up.
 - **Zero compilation warnings required.** The build must produce zero warnings. Treat every warning as an error (enable the build system's warnings-as-errors mode where available).
-- **Follow the host project's language/code-style rules.** Language-specific conventions (access modifiers, idioms, safe patterns) are defined by the host project's guidelines and `.claude/skills/` — consult them before writing code.
+- **Follow the host project's language/code-style rules.** Language-specific conventions (access modifiers, idioms, safe patterns) are defined by the host project's guidelines and its skills directory (see the host's `HOST_CONTRACT.md`) — consult them before writing code.
 
 ---
 
@@ -91,7 +92,7 @@ When a different agent has reviewed your code and requested changes:
 ### Phase 1: Preparation
 
 1. Read the task file thoroughly — objectives, acceptance criteria, prerequisites, edge cases
-2. Read `.claude/skills/_index.md` for project-specific skills (architecture, conventions, how-tos)
+2. Read the host project's skills index (`_index.md` in its skills directory — see the host's `HOST_CONTRACT.md`) for project-specific skills (architecture, conventions, how-tos)
 3. Ensure dependencies are installed and environment is configured
 4. Break down objectives into testable units; plan implementation order; design interfaces first
 

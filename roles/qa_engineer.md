@@ -67,7 +67,9 @@ This is the **definitive** test execution for the task — run on the final comm
 For each objective and acceptance criterion: document verification steps, expected vs. actual behavior, PASS/FAIL result, and evidence.
 
 ### Phase 4: Manual Testing
-Test and document results for each category:
+Depth follows the task's **risk class** (`guides/pipeline.md`): `CRITICAL` tasks get all six categories; `STANDARD` tasks cover happy path, edge cases, and error scenarios, and add integration/exploratory slices when the diff touches integration points or the Manager requests them; `DOCS_ONLY` tasks skip QA entirely.
+
+Test and document results for each applicable category:
 1. **Happy path** — primary expected use case
 2. **Alternative paths** — valid but non-primary scenarios
 3. **Edge cases** — empty input, null values, boundaries, large datasets, special characters, concurrency
@@ -79,6 +81,8 @@ Test and document results for each category:
 Verify documentation exists and is accurate. If performance requirements are specified in the task, test against them and document results.
 
 ## QA Report
+
+- **Round limit**: this is QA round tracking, not an invitation to loop — after the 2nd `QA_FAILED` round the Manager escalates to the user (`guides/pipeline.md`). Record the round number in the QA report.
 
 **Output template**: See [`templates/qa-report-template.md`](../templates/qa-report-template.md)
 

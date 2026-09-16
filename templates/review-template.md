@@ -3,8 +3,9 @@
 **Task**: [Task Name]
 **Task File**: [Path to task file]
 **PR/Branch**: [PR URL or branch name]
-**Reviewer**: AI Coder
+**Reviewer**: <agentId / reviewing context>
 **Review Date**: [Date]
+**Review Round**: [1 / 2 — at 2 rounds ending in REQUEST_CHANGES the Manager escalates to the user]
 **Status**: [APPROVED / REQUEST_CHANGES / COMMENT]
 
 ## Summary

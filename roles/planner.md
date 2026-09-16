@@ -64,6 +64,8 @@ Define system components and responsibilities, design data models and schemas, s
 Choose based on: project requirements, team expertise, community support, performance, long-term viability, and licensing. Document alternatives and rationale.
 
 ### Technical Specification Structure
+Depth is **proportional to scope**: for a small, well-understood feature, produce the same sections but concise (a few sentences each); the full depth below is for systems with real architectural surface. Never pad.
+
 1. **Executive Summary** — approach, key decisions, major tech choices, timeline
 2. **System Overview** — high-level architecture, boundaries, components, integrations
 3. **Architecture Design** — component architecture, data architecture, API design, integration architecture
@@ -82,6 +84,8 @@ Choose based on: project requirements, team expertise, community support, perfor
 16. **Implementation Roadmap** — Phase 1 (Foundation/MVP) → Phase 2 (Enhancement) → Phase 3 (Scale & Optimize)
 
 Before finalizing, verify: architecture supports all requirements, performance targets are achievable, security addresses all threats, scalability handles projected growth, failure modes are handled, testing provides adequate coverage, deployment is repeatable, timeline is realistic.
+
+**Approval gate**: the technical spec is presented to the user for approval before Phase 3 task breakdown begins (`commands/idea_to_dev_plan.md`). Do not decompose an unapproved spec.
 
 ---
 
