@@ -17,7 +17,7 @@ Convert a raw idea into a product spec, technical spec, and detailed development
 4. **Phase 3 — Task Breakdown**: Follow `roles/planner.md` Phase 3 to produce `<tech-spec-name>_development_plan/` with milestones and task files.
 
 ## Output Location
-All artifacts **must** be placed in the host project's documented workflow locations. **The host project defines these locations in its `CLAUDE.md`** (look for a "Workflow locations" or similar section); read it before creating any files. The artifacts follow this structure, rooted wherever the host project keeps them (`<docs-root>` below):
+All artifacts **must** be placed in the host project's documented workflow locations. **The host project defines these locations in its root instructions file** (`CLAUDE.md` / `AGENTS.md` — look for a "Workflow locations" or similar section; see `HOST_CONTRACT.md`); read it before creating any files. The artifacts follow this structure, rooted wherever the host project keeps them (`<docs-root>` below):
 
 ```
 <docs-root>/
@@ -34,7 +34,7 @@ All artifacts **must** be placed in the host project's documented workflow locat
     └── ...
 ```
 
-Never place these artifacts in the repository root. If the host `CLAUDE.md` does not define the locations, ask the user where they should live before proceeding.
+Never place these artifacts in the repository root. If the host's root instructions do not define the locations, ask the user where they should live before proceeding.
 
 ## Output
 - `<docs-root>/ideas/<idea-short-name>_idea.md`

@@ -34,7 +34,7 @@ own registration surface:
 
 | Concern | Claude Code | ZCode |
 | --- | --- | --- |
-| Commands | `.claude/commands` → symlink to `IskInFlow/commands` | harness-specific command mapping |
+| Commands | `.claude/commands` → symlink to `IskInFlow/commands` | `.zcode/commands` → symlink to `IskInFlow/commands` |
 | Guides / roles | read on demand from `IskInFlow/` | same |
 | Workflow gates | `pre-push` hook (harness-independent, plain git) | same hook |
 | Skills | `.claude/skills` symlink | `.zcode/skills` symlink |
