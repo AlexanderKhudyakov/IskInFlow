@@ -3,8 +3,10 @@
 **Task**: [Task Name]
 **Task File**: [Path to task file]
 **PR/Branch**: [PR URL or branch name]
-**QA Engineer**: AI QA Engineer
+**QA Engineer**: <agentId / QA context>
 **Test Date**: [Date and Time]
+**QA Round**: [1 / 2 — at 2 FAIL rounds the Manager escalates to the user]
+**Risk Class**: [DOCS_ONLY / STANDARD / CRITICAL — sets Phase 4 depth]
 **Status**: [PASS ✅ / FAIL ❌ / CONDITIONAL_PASS ⚠️]
 
 ---

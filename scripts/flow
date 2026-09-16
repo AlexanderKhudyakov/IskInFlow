@@ -170,6 +170,10 @@ def cmd_validate(args):
     total_errors = total_warnings = 0
     for path in paths:
         errors, warnings = [], []
+        if not os.path.exists(path):
+            print(f"{path}: ERROR file not found")
+            total_errors += 1
+            continue
         try:
             lock = load_lock(path)
         except Exception as exc:
@@ -278,7 +282,14 @@ def cmd_new(args):
 def cmd_transition(args):
     root = find_repo_root(args.root)
     path = args.lock if os.path.isabs(args.lock) else os.path.join(root, args.lock)
-    lock = load_lock(path)
+    if not os.path.exists(path):
+        print(f"flow transition: lock file not found: {path}", file=sys.stderr)
+        return 1
+    try:
+        lock = load_lock(path)
+    except json.JSONDecodeError as exc:
+        print(f"flow transition: unparseable lock JSON ({exc})", file=sys.stderr)
+        return 1
     current = lock.get("workStage")
     target = normalize_stage(args.stage)
 
@@ -363,7 +374,10 @@ def check_branch_sha(sha, branch, problems, warnings):
         short = branch[len("refs/heads/"):] if branch.startswith("refs/heads/") else branch
         if lock.get("branch"):
             return lock.get("branch") == short
-        return lock.get("taskId") == short[len("ai/"):]
+        task = lock.get("taskId")
+        name = short[len("ai/"):] if short.startswith("ai/") else short
+        # exact match, or legacy branch naming ai/<task-id>-<description>
+        return task is not None and (name == task or name.startswith(task + "-"))
 
     own = [(p, l) for p, l in locks if l.get("status") == "ACTIVE" and belongs(l)]
 

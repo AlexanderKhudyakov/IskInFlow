@@ -116,9 +116,11 @@ the lock, and is a process smell worth recording for the retrospective.
 Coordination data (locks, briefs, artifacts) rides on `main`. To keep history
 readable:
 
-- Batch: one commit per stage burst, not per file (e.g. lock transition +
-  its artifact together; final archival rides with the merge commit's branch
-  preparation).
+- On `main` itself only two commits per task are allowed (lock acquisition and
+  final merge + archival — see "Final merge mechanics"); all intermediate
+  transitions and artifacts are committed on the feature branch.
+- Batch feature-branch coordination commits per stage burst, not per file
+  (e.g. a lock transition commits together with its artifact).
 - Batch lock acquisition across tasks is mandatory in multi-agent mode
   (Part 5) and preferred in single-agent mode.
 - Never push `main` more than once per stage transition burst.
@@ -132,9 +134,19 @@ readable:
 | --- | --- | --- |
 | Plan (quick lane) | brief + task file | `.task-locks/qt-<name>-brief.md`, `-task.md` |
 | Review | review report (round-numbered) | `.task-locks/artifacts/<task-id>/review.md` |
-| QA | QA report | `.task-locks/artifacts/<task-id>/qa-report.md` |
+| QA | QA report (with round + risk class) | `.task-locks/artifacts/<task-id>/qa-report.md` |
 | Reflection | reflection summary | `.task-locks/artifacts/<task-id>/reflection.md` |
 | Merge | lock archived with `status: COMPLETED`, `workStage: MERGED` | `.task-locks/completed/<task-id>.lock.json` |
+
+## Final merge mechanics
+
+The final merge uses **`git merge --no-ff`** — always a merge commit, preserving
+a clear record of when the branch landed (full sequences in
+`git_and_workflow_operations.md` Parts 3 and 5, including the rebase-and-retry
+loop for push contention). Consistent with the batching discipline above, only
+**two commits per task touch `main`**: lock acquisition (Push 1) and final
+merge + archival (Push 2); every intermediate transition and artifact commit
+lives on the feature branch and reaches `main` through the merge.
 
 Completion rule (unchanged): a task is COMPLETED only after required gates,
 merge to `main`, and push to remote. The `pre-push` gate and `flow validate`

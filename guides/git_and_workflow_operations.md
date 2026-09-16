@@ -15,7 +15,7 @@ This guide provides the definitive procedures for all git operations, task locki
 7. **Git Worktree (Required)**: All agents MUST use `git worktree` for every task to maintain isolated working copies and prevent file/artifact contamination
 8. **Push Main After Merge**: The final merge to `main` MUST be pushed to remote before any branch cleanup. Task is not complete until remote `main` is updated
 9. **Agent Identity**: Every agent has a fixed, human-readable name (e.g., `agent-alpha`). All lock operations record which agent performed them
-10. **Cross-Agent Review**: In multi-agent mode, the implementing agent and the reviewing agent must be different. Self-review is not permitted
+10. **Cross-Context Review**: the reviewing and QA contexts must differ from the implementing context — separate top-level agents in multi-agent mode, fresh subagents in single-agent mode (see `guides/pipeline.md`). Self-review by the implementing context is not permitted except as a labeled last-resort fallback
 11. **Minimal Main Touches**: Only two commits per task touch `main` — lock acquisition and final merge+archive. All intermediate stage transitions stay on the feature branch
 12. **Retry-Before-Fail**: Push rejections due to concurrent writes are resolved via fetch-rebase-push retry loops, not manual intervention
 
@@ -627,9 +627,15 @@ Forgetting to commit artifacts leaves orphaned untracked files and breaks the au
 
 ### Pre-Merge Validation
 
-Before final merge, validate (reading from the feature branch):
+Before final merge, validate (reading from the feature branch). The mechanical
+checks below are enforced automatically by `IskInFlow/scripts/flow validate`
+and the `pre-push` gate (`scripts/pre-push.flow`) — run them first, then do the
+judgment checks (tests green) by hand:
 
 ```bash
+# Mechanical: schema, known stage, artifact presence (unless history records a skip)
+IskInFlow/scripts/flow validate .task-locks
+
 # Verify lock file shows REFLECTION_COMPLETE (on feature branch)
 cat .task-locks/<task-id>.lock.json | grep workStage
 # Must show: REFLECTION_COMPLETE
