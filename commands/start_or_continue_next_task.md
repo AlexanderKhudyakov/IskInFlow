@@ -4,23 +4,17 @@
 Before executing any step in this command, consult `guides/mcp_first_tooling.md`. Enumerate available MCP servers and tools, and prefer them for discovery, validation, and execution tasks.
 
 ## Purpose
-This command selects the next task using a strict, lock-based workflow. Supports both single-agent and multi-agent parallel execution.
+Select the next task(s) from the current milestone and run the standard task pipeline on them. Supports single-agent and multi-agent parallel execution.
+
+**Stage mechanics (gates, review/QA loops with circuit breakers, risk classes, artifacts, merge) are defined once in [`guides/pipeline.md`](../guides/pipeline.md) — this command defers to it.** Role contracts: `roles/manager.md`, `roles/coder.md`, `roles/code_reviewer.md`, `roles/qa_engineer.md`, `roles/reflector.md`.
+
+Lane parameters for this command (**full lane**): task IDs `<NNN>` from a development plan; branch `ai/<task-id>-<short-description>`; planning artifact = the plan's task file.
 
 Key rules:
-- **Maximize parallelism**: when multiple eligible unblocked tasks exist, launch as many agents as possible in parallel using the Task tool with multiple concurrent tool calls. Do not work tasks sequentially when they can be parallelized. Each agent gets its own task, lock, worktree, and feature branch.
-- **No pull requests** are used in this workflow. Everything is branch-based with direct merges.
-- **Lock-first**: the lock commit must be on `main` **and pushed to remote** before any implementation begins.
-- **User confirmation is required before resuming**: if an unfinished (ACTIVE) task is found, the agent **must ask the user** before continuing. Never auto-resume.
-- The lock file on `main` (pushed to remote) is the **single source of truth** for whether a task is taken.
-- **Post-merge push**: after merging, `main` must be pushed to remote before any cleanup.
-- **Branch cleanup**: the feature branch may only be deleted after `main` is pushed.
-- **Agent identity**: every agent must identify itself with its assigned `agentId` in all lock operations.
-- **Cross-agent review**: in multi-agent mode, the reviewer and QA agent must differ from the implementer.
-
-This command is intentionally strict:
-- Tasks that change code or tests MUST go through code review and QA.
-- Tasks with no code/test changes (docs/spec/process-only) MAY skip code review and QA after manager verification and lock-history evidence.
-- A task is only considered **COMPLETED** after required quality gates are satisfied, the branch is **merged to `main`**, and `main` is **pushed to remote**.
+- **Maximize parallelism**: when multiple eligible unblocked tasks exist, batch-lock them and launch one agent per task **in a single message** so they run concurrently. Each agent gets its own task, lock, worktree, and feature branch.
+- **Lock-first**: the lock commit must be on `main` **and pushed** before implementation begins. The pushed lock is the single source of truth for task ownership.
+- **User confirmation is required before resuming** an ACTIVE task. Never auto-resume.
+- **No pull requests** — branch-based with direct merges. A task is COMPLETED only after required gates, merge to `main`, and push (enforced by `guides/pipeline.md` and the `pre-push` gate).
 
 ## Steps
 
@@ -44,101 +38,19 @@ This command is intentionally strict:
 - If tasks are awaiting review/QA and this agent is the designated reviewer: perform the review/QA first, then proceed to new implementation.
 
 ### Step 1: Select Next Task(s) (Manager)
-- If no ACTIVE lock exists (or user declined to resume), identify **all** eligible unblocked tasks from the current milestone.
-- See `guides/git_and_workflow_operations.md` Part 9 for task selection criteria.
-- **Parallel-first**: if multiple tasks are eligible, batch-lock them all and launch a separate agent (via the Task tool) for each task **in a single message** so they run concurrently. Do not serialize tasks that have no dependency on each other.
-- **Multi-agent batch assignment:** The Manager should batch-assign in a single commit (see `guides/git_and_workflow_operations.md` Part 5: Batch Lock Acquisition), then spawn one Task-tool agent per task.
+- If no ACTIVE lock exists (or user declined to resume), identify **all** eligible unblocked tasks from the current milestone. Selection criteria: `guides/git_and_workflow_operations.md` Part 9; full Manager authority: `roles/manager.md`.
+- **Parallel-first**: batch-lock all eligible tasks in a single commit (Part 5: Batch Lock Acquisition), then spawn one Task-tool agent per task **in a single message**.
 
-### Step 2: Lock Task on `main` (Coder)
-This step prevents multiple agents from working on the same task.
-
-**For complete step-by-step procedures, see [`guides/git_and_workflow_operations.md#part-5-command-reference`](../guides/git_and_workflow_operations.md#part-5-command-reference).**
-
-Summary:
-1. Create `.task-locks/<task-id>.lock.json` with `status: ACTIVE`, `workStage: IMPLEMENTATION_STARTED`, `agentId: "<your-agent-name>"`.
-2. Commit the lock file on `main`.
-3. **Push `main` to remote** — this is mandatory before proceeding. If push is rejected (another agent pushed first), use the retry loop from `guides/git_and_workflow_operations.md` Part 7.
-4. Only after push succeeds: create the feature branch `ai/<task-id>-<short-description>` from `main` and set up a worktree.
-
-### Step 3: Implement with TDD (Coder)
-- Implement the task using TDD on the feature branch (in its own worktree).
-- Update the lock file on the **feature branch** with progress checkpoints (NOT on main — intermediate updates stay on the feature branch).
-- When implementation is complete, transition to `workStage: IMPLEMENTATION_COMPLETE`.
-- See `roles/coder.md` for detailed implementation guidelines.
-
-### Step 4: Determine Required Quality Gates (Manager)
-- Inspect branch diff and classify task scope:
-  - **Code/test changed**: requires code review + QA.
-  - **No code/test changed**: allows skip of code review + QA.
-- Record decision and evidence in lock history.
-- Suggested evidence: `git diff --name-only main...<branch>` output showing only docs/spec/process files.
-
-### Step 5: Code Review (Conditional)
-- If task changes code/tests:
-  - **Review is read-only — the reviewer must NOT build or run tests** (see `roles/code_reviewer.md`
-    Non-negotiables). QA (Step 6) builds everything and runs the authoritative suite. When the manager
-    writes the reviewer's brief, it must not instruct the reviewer to run suites, xcodebuild, or any
-    build/test toolchain — reviewer briefs point at the diff and the quality checklist only.
-  - **Multi-agent**: Set `workStage: AWAITING_REVIEW`, push feature branch. A different agent performs the review. Implementing agent is free to start the next task.
-  - **Single-agent**: Same agent performs review (legacy behavior).
-  - Produce review artifact: `.task-locks/artifacts/<task-number>/review.md`.
-  - Only when review status is **APPROVED** can the task proceed.
-  - Transition lock to `workStage: CODE_REVIEW_APPROVED`.
-  - See `roles/code_reviewer.md`.
-- If task has no code/test changes:
-  - Skip code review and set `workStage: CODE_REVIEW_SKIPPED`.
-  - Record skip reason + diff evidence in lock history.
-
-### Step 6: QA Verification (Conditional)
-- If task changes code/tests:
-  - **Multi-agent**: Set `workStage: AWAITING_QA`. A different agent performs QA. QA agent must differ from implementer.
-  - **Single-agent**: Same agent performs QA (legacy behavior).
-  - QA runs only on the branch/commit that incorporates review feedback.
-  - QA produces: `.task-locks/artifacts/<task-number>/qa-report.md`.
-  - Transition lock to `workStage: QA_PASSED` only on PASS.
-  - See `roles/qa_engineer.md`.
-- If task has no code/test changes:
-  - Skip QA and set `workStage: QA_SKIPPED`.
-  - Record skip reason + diff evidence in lock history.
-
-### Step 7: Reflection (Mandatory)
-- **Always runs** — even for tasks that skipped review/QA (docs-only tasks may still yield discovery skills).
-- The Reflector analyzes the completed task and extracts reusable knowledge into `.claude/skills/`.
-- See `roles/reflector.md` for detailed guidelines.
-- In multi-agent mode: reflection may be performed by any agent (self-reflection is allowed).
-
-Summary:
-1. Read the task file, git diff, lock history, review artifact, and QA report.
-2. Read `.claude/skills/_index.md` to check for existing skills and avoid duplicates.
-3. Determine if any knowledge from this task is worth capturing as a skill.
-4. If yes: create/update skill files in `.claude/skills/` and update `_index.md`.
-5. Produce reflection artifact: `.task-locks/artifacts/<task-id>/reflection.md`.
-6. Update lock: `workStage: REFLECTION_COMPLETE`, append history entry.
-7. Commit reflection artifact and any skill changes to the feature branch.
-
-### Step 8: Final Merge and Push (Manager + Coder)
-**For complete step-by-step procedures, see [`guides/git_and_workflow_operations.md#part-5-command-reference`](../guides/git_and_workflow_operations.md#part-5-command-reference).**
-
-Summary:
-1. On the feature branch, prepare final lock update:
-   - Set `status: COMPLETED`, `workStage: MERGED`.
-   - Move lock to `.task-locks/completed/<task-id>.lock.json`.
-   - Commit this final update.
-2. Checkout `main`, pull latest, fast-forward merge the feature branch.
-3. **Push `main` to remote** — mandatory before any cleanup. If push is rejected, use the merge retry loop from `guides/git_and_workflow_operations.md` Part 7.
-4. Only after push succeeds: delete the worktree and local feature branch.
+### Steps 2–8: Run the pipeline (all roles)
+Run [`guides/pipeline.md`](../guides/pipeline.md) with **lane = full**: lock acquisition and TDD implementation on a worktree feature branch (Coder), gate classification (Manager), read-only cross-context review, QA on the approved commit, mandatory reflection, final merge and push with lock archival. Observe the circuit breakers (2 review rounds / 2 QA rounds → escalate to the user) and the coordination-commit batching discipline defined there.
 
 ## Output
 - Task selection summary
-- Lock file committed to `main` **and pushed to remote** when task starts (with `agentId`)
-- Feature branch `ai/...` created after lock is on remote
-- Code review artifact (required only when code/tests changed): `.task-locks/artifacts/<task-id>/review.md`
-- QA report (required only when code/tests changed): `.task-locks/artifacts/<task-id>/qa-report.md`
-- Reflection artifact: `.task-locks/artifacts/<task-id>/reflection.md`
-- New/updated skills in `.claude/skills/` (if any)
-- For no-code/test tasks: lock history entry documenting approved review/QA skip with diff evidence
-- Final merge includes lock archival; `main` pushed to remote
-- Branch cleanup only after remote push confirmed
+- Lock file committed to `main` **and pushed** when the task starts (with `agentId`)
+- Feature branch `ai/...` created after the lock is on remote
+- Pipeline artifacts per `guides/pipeline.md` (review / QA report for code tasks; reflection always)
+- New/updated skills in the host skills directory (if any)
+- Final merge includes lock archival; `main` pushed; cleanup only after push confirmed
 
 ## Multi-Agent Notes
 
@@ -165,7 +77,6 @@ If `git push origin main` is rejected because another agent pushed first:
 
 ## Notes
 - If no eligible task is found, report blockers and recommend next action.
-- **Never** mark a task completed based on "implementation finished". Completion requires: required quality gates + merge + push.
-- **Always ask the user** before resuming unfinished work. Never auto-resume.
-- **Reflection is mandatory for ALL tasks** — including no-code/docs-only tasks. Even tasks that skip review/QA must go through reflection.
+- **Never** mark a task completed based on "implementation finished" — the pipeline's gates decide.
+- **Reflection is mandatory for ALL tasks**, including `DOCS_ONLY`.
 - In multi-agent mode, check for review/QA work before starting a new implementation task.

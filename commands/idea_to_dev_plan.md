@@ -13,7 +13,8 @@ Convert a raw idea into a product spec, technical spec, and detailed development
 ## Steps
 1. **Phase 1 — Product Analysis**: Follow `roles/planner.md` Phase 1 to produce `<idea-short-name>_idea.md`.
 2. **Phase 2 — Technical Specification**: Follow `roles/planner.md` Phase 2 to produce `<idea-short-name>_tech_spec.md` based on the product spec.
-3. **Phase 3 — Task Breakdown**: Follow `roles/planner.md` Phase 3 to produce `<tech-spec-name>_development_plan/` with milestones and task files.
+3. **Approval gate (user)**: present the product spec and tech spec (executive summaries plus key decisions) to the user and **wait for explicit approval**. Do not start task breakdown on an unapproved spec; incorporate requested changes and re-confirm.
+4. **Phase 3 — Task Breakdown**: Follow `roles/planner.md` Phase 3 to produce `<tech-spec-name>_development_plan/` with milestones and task files.
 
 ## Output Location
 All artifacts **must** be placed in the host project's documented workflow locations. **The host project defines these locations in its `CLAUDE.md`** (look for a "Workflow locations" or similar section); read it before creating any files. The artifacts follow this structure, rooted wherever the host project keeps them (`<docs-root>` below):

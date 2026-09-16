@@ -960,21 +960,28 @@ git fetch --prune
 
 ## Part 9: Manager Responsibilities
 
-The Manager (human or AI agent orchestrating the workflow) has exclusive authority over these decisions:
+The full Manager contract lives in [`roles/manager.md`](../roles/manager.md).
+Summary of exclusive Manager authority:
 
-- **Only the Manager may mark a task as COMPLETED** — and only after required quality gates are satisfied and the branch is merged to `main`.
-- **Strict role delegation**: The Manager must never write code or perform code reviews itself. All code changes go to the **Coder** role; all reviews go to the **Code Reviewer** role.
-- **Only the Manager (or the user) may reclaim stale locks.** Worker agents never reclaim each other's locks (see [Part 8](#part-8-stale-lock-detection--reclamation)).
-- **Task selection**: Select the first eligible unblocked task — not completed, not locked, all prerequisites satisfied, belongs to current milestone.
-- **Quality gate classification**: Inspect the branch diff to determine if code/tests changed. Code/test changes require review + QA. No-code/test changes may skip with recorded evidence (`git diff --name-only`).
-- **Error escalation**: If code review or QA fails after 3+ iterations, review feedback patterns, consider architectural review or task clarification. If no eligible tasks are available, report blockers.
+- Marking a task COMPLETED (only after required gates + merge + push).
+- Strict role delegation: the Manager never writes code or performs reviews.
+- Stale-lock reclamation (worker agents never reclaim each other's locks —
+  see [Part 8](#part-8-stale-lock-detection--reclamation)).
+- Task selection and batch assignment (Part 5, Part 7).
+- Risk-class / quality-gate classification with diff evidence.
+- Circuit-breaker escalations: after 2 review rounds requesting changes or
+  2 QA failures, escalate to the user instead of looping
+  ([guides/pipeline.md](pipeline.md#review-loop-with-circuit-breaker)).
 
 ---
 
 ## See Also
 
+- **Pipeline**: `guides/pipeline.md` – canonical stages, gates, circuit breakers
+- **Manager Role**: `roles/manager.md` – orchestration, escalation, merge authority
 - **Coder Role**: `roles/coder.md` – Implementation guidelines, handoff protocol
 - **Code Review**: `roles/code_reviewer.md` – Code quality assessment, cross-agent review
 - **QA Role**: `roles/qa_engineer.md` – Functional verification, cross-agent QA
 - **Reflector Role**: `roles/reflector.md` – Post-task knowledge capture and skill extraction
 - **Start Command**: `commands/start_or_continue_next_task.md` – Workflow entry point
+- **Tooling**: `scripts/flow` – lock validation, transitions, push gate, metrics
