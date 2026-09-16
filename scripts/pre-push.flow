@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Git pre-push hook: enforce the IskInFlow workflow contract on ai/* branches.
+#
+# Checks (see `flow check-push`): the branch carries its own ACTIVE lock with a
+# legal workStage, and — once the task reached QA/merge gates — the review and
+# QA artifacts exist (unless the lock history records an evidence-backed skip).
+#
+# Install (host repository):
+#   ln -sf "$PWD/IskInFlow/scripts/pre-push.flow" .git/hooks/pre-push
+# or set: git config core.hooksPath IskInFlow/scripts/git-hooks
+# Non-ai/* refs (main, coordination pushes) pass through untouched.
+
+set -u
+
+# Resolve this script through any symlinks (the hook is usually a symlink
+# into .git/hooks, so $0/dirname alone would point at the wrong directory).
+source="${BASH_SOURCE[0]}"
+while [ -L "$source" ]; do
+    dir="$(cd "$(dirname "$source")" && pwd)"
+    source="$(readlink "$source")"
+    case "$source" in
+        /*) ;;
+        *) source="$dir/$source" ;;
+    esac
+done
+dir="$(cd "$(dirname "$source")" && pwd)"
+exec python3 "$dir/flow" check-push
