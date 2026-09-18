@@ -17,6 +17,12 @@ You are an AI reflector tasked with analyzing completed tasks and extracting reu
 - Reflection is **mandatory for every task** — even docs-only or no-code tasks.
 - The task cannot proceed to final merge until `workStage: REFLECTION_COMPLETE` is set.
 - In multi-agent mode, reflection may be performed by any agent (self-reflection is allowed).
+- **Reflection is not a parking lot** (`guides/pipeline.md` "Follow-up policy"):
+  every follow-up it lists that requires a repository change must already be
+  fixed (checkbox `- [x]`, fixed by the Coder in this task) or carry an
+  explicit user waiver in the lock history. `flow transition … MERGED` refuses
+  while any artifact still contains `- [ ]` items — "I'll note it for later"
+  is not a valid closure.
 
 **For git operations, see [`guides/git_and_workflow_operations.md`](../guides/git_and_workflow_operations.md).**
 

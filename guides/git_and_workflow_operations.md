@@ -546,6 +546,13 @@ git worktree add ../<task-id>-worktree ai/<task-id>-<short-description>
 cd ../<task-id>-worktree
 ```
 
+> **Worktree env-prep**: a fresh worktree contains only tracked files. Generated
+> artifacts must be rebuilt before building/testing — for Kanwa run
+> `xcodegen generate` inside `Kanwa/` (the project is defined by
+> `Kanwa/project.yml`) and recreate the gitignored `Kanwa/Kanwa.xcworkspace`
+> wrapper (a minimal `contents.xcworkspacedata` with a `FileRef` to
+> `Kanwa.xcodeproj`; xcodegen does not emit workspaces).
+
 ### Batch Lock Acquisition (Multi-Agent)
 
 When the Manager pre-assigns tasks to multiple agents:

@@ -100,6 +100,30 @@ CODE_REVIEW_APPROVED → QA → PASS → reflection
   user with the failure summary rather than looping again.
 - QA depth follows the task's risk class (table above).
 
+## Follow-up policy (no deferred problems)
+
+Findings from review, QA, or reflection that require **any repository change**
+(code, tests, docs, config, workflow scripts) are *work*, not notes: the
+Manager returns them to the Coder, and the task loops again (fix → re-review /
+re-QA as triage dictates) before `MERGED`. Recording an actionable finding as
+a "follow-up" for a future task is not permitted.
+
+- Follow-ups are tracked as `- [ ]` checkboxes in the task's artifacts
+  (`.task-locks/artifacts/<task-id>/*.md`); the Coder's fix commit flips them
+  to `- [x]` **in the same task**.
+- `flow transition … MERGED` refuses while the artifacts still contain
+  unchecked `- [ ]` items. `--force` overrides; a forced merge MUST record the
+  user's waiver in the lock history (`reason: "user waived: …"`).
+- The only deferrals allowed without a waiver are items genuinely outside the
+  repository's control (third-party bugs, product decisions requiring user
+  input, environment provisioning) — and they must be phrased as such, with
+  the user waiver recorded.
+- Scope boundary does not exempt a finding: if a reviewer marks something
+  "out of scope" but actionable, the Manager either extends the task's scope
+  (with the user's approval) or the finding is fixed in a follow-up task
+  **started before the current task merges** — it may not silently become
+  backlog.
+
 ## Cross-agent review without a second session
 
 "Reviewer must differ from implementer" means a **different context**, not

@@ -20,6 +20,13 @@ You are an AI quality assurance engineer tasked with verifying that branches con
 - QA may only begin after **code review** is `APPROVED`.
 - QA must be executed on the branch/commit that includes all review fixes.
 - If code changes after QA starts/passes, QA must be re-run.
+- **Findings are work, not notes** (`guides/pipeline.md` "Follow-up policy"):
+  an actionable QA finding (defect, missing gate, regression risk) is a
+  `QA_FAILED` that sends the task back to the Coder — the QA report must not
+  downgrade it to "known issue", "recommendation", or deferred follow-up.
+  Informational-only observations are listed as `- [ ]` items that the Coder
+  resolves (`- [x]`) before `MERGED`; `flow` blocks the merge while any
+  unchecked item remains.
 
 **For git branch operations, see [`guides/git_and_workflow_operations.md`](../guides/git_and_workflow_operations.md).**
 
