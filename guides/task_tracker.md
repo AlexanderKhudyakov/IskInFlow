@@ -123,12 +123,19 @@ List fields (`blocked-by`, `relates-to`, `tags`) accept both flow style
 | `feature` | New user-facing functionality | `## Критерии готовности` |
 | `improvement` | Polishing existing behavior (UX, performance), nothing new | `## Критерии готовности` |
 | `task` | Other work: infrastructure, refactoring, organization | `## Критерии готовности` |
-| `product-research` | Do we need this, and how should it work | `## Открытые вопросы` + `## Результат`; spec in host ideas docs (`spec:`) |
-| `tech-research` | How to implement it | `## Открытые вопросы` + `## Результат`; tech spec (`spec:`) |
+| `product-research` | Do we need this, and how should it work | `## Открытые вопросы`; `## Результат` (header from `open`, non-empty at `review`/`done`); spec in host ideas docs (`spec:`) |
+| `tech-research` | How to implement it | `## Открытые вопросы`; `## Результат` (header from `open`, non-empty at `review`/`done`); tech spec (`spec:`) |
 
 `## Описание` is mandatory for every type. There is **no** attachments
 section: files from `attachments/` are referenced in place with relative
 links.
+
+Section rules apply from `open` — statuses `draft` and `cancelled` are
+exempt. For `bug`, the `**Фактическое поведение:**` /
+`**Ожидаемое поведение:**` labels must be present inside
+`## Шаги воспроизведения`; the text after them is not gated. For research
+types, `## Результат` holds the outcome — hence the header-only requirement
+until acceptance.
 
 Adding a new type means editing **three places**: this guide, the host's
 `new.sh` (type whitelist), and the host's `validate.sh` (enum + per-type body
@@ -199,11 +206,11 @@ The host provides:
   the template;
 - `Tasks/validate.sh [folder…]` — format gate: folder/file structure, task
   and comment frontmatter (schema — unknown keys rejected, enums,
-  cross-field rules), per-type body
-  sections and their non-emptiness, reference integrity of `blocked-by` /
-  `relates-to`, calendar-correct dates, comment numbering. **The detailed,
-  canonical checklist lives in the header comment of the script itself**
-  (`head Tasks/validate.sh`); docs keep only this summary to avoid drift.
+  cross-field rules), per-type body sections and their timing, reference
+  integrity of `blocked-by` / `relates-to` (including cycles), calendar
+  dates, comment numbering. **The detailed, canonical checklist lives in
+  the header comment of the script itself** (`head Tasks/validate.sh`);
+  docs keep only this summary to avoid drift.
   Hosts wire it into the pre-commit hook (trigger on staged `Tasks/` paths).
 
 Mechanical limits (known, deliberate): the hooks are opt-in (`git config
