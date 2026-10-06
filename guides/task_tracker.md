@@ -218,7 +218,11 @@ and rejects pushes that delete task folders. Status-transition legality
 are not gated. Field formats beyond the stated checks are prose:
 `branch`/`lock`/`spec` patterns are not validated (`spec` is only checked
 non-empty at research `done`), and dates are calendar-checked but may lie in
-the future.
+the future. Degrade-on-absence: if a pushed tree has tasks but no runnable
+`Tasks/validate.sh` (removed or non-executable), the hook gates downgrade to
+a WARN instead of failing — deliberate, so archived trees stay pushable; and
+the deletion gate protects task folders only, not the tracker's service
+files (the validator itself is not deletion-protected).
 
 ## Query recipes
 
