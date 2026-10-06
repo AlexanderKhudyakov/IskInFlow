@@ -8,7 +8,7 @@ Take a simple user request from chat and run the entire pipeline end-to-end: pla
 
 **Stage mechanics (gates, review/QA loops with circuit breakers, risk classes, artifacts, merge) are defined once in [`guides/pipeline.md`](../guides/pipeline.md) — this command defers to it.** Role contracts: `roles/manager.md`, `roles/coder.md`, `roles/code_reviewer.md`, `roles/qa_engineer.md`, `roles/reflector.md`.
 
-Lane parameters for this command (**quick lane**): task IDs `qt-<short-name>` (prevents collision with numbered development-plan tasks); branch `ai/qt-<short-name>`; planning artifacts live in `.task-locks/`.
+Lane parameters for this command (**quick lane**): task IDs `qt-<short-name>` (prevents collision with numbered development-plan tasks); branch `ai/qt-<short-name>`; the planning artifact is a **tracker task** — `Tasks/NNNN-<slug>/task.md`, format: [`guides/task_tracker.md`](../guides/task_tracker.md). Locks and pipeline execution artifacts (review/QA/reflection) still live in `.task-locks/`.
 
 Key rules:
 - **Lock-first**: the lock commit must be on `main` **and pushed** before implementation begins. The pushed lock is the single source of truth for task ownership.
@@ -29,19 +29,15 @@ Key rules:
 ### Step 1: Understand and Plan (Manager)
 1. Analyze the user's request to understand the problem and desired outcome.
 2. Explore the codebase to understand the current state and identify files to modify.
-3. Produce a **Quick Task Brief**: `.task-locks/qt-<short-name>-brief.md` containing:
-   - **Problem Statement**: What needs to change and why.
-   - **Proposed Solution**: High-level approach.
-   - **Scope**: What's included and explicitly what's excluded.
-   - **Acceptance Criteria**: Clear, verifiable conditions for completion.
-   - **Files to Modify**: List of files to create, modify, or delete.
-   - **Risks**: Anything that could go wrong or require extra care.
-   - **Testing Approach**: How the changes will be verified.
-4. The brief is capped at ~80 lines. If it grows beyond that, recommend `idea_to_dev_plan` instead and stop.
-5. **Confirm the brief with the user** before proceeding. Do not continue without explicit approval.
+3. Create the **tracker task** for this work: `Tasks/new.sh <type> <slug> "Title"` (or follow [`guides/task_tracker.md`](../guides/task_tracker.md) manually), `status: draft`, and fill:
+   - `## Описание` — Problem Statement (what needs to change and why), Proposed Solution (high-level approach), Scope (what's included and explicitly excluded); for quick work, Files to Modify / Risks / Testing Approach fit here as short bullet lists.
+   - `## Критерии готовности` — clear, verifiable conditions for completion.
+   - For `type: bug` also `## Шаги воспроизведения` with actual/expected behavior.
+4. The task description is capped at ~80 lines. If it grows beyond that, recommend `idea_to_dev_plan` instead and stop.
+5. **Confirm the task with the user** before proceeding, then set `status: open`. Do not continue without explicit approval.
 
-### Step 2: Create Task File (Manager)
-- Produce `.task-locks/qt-<short-name>-task.md` using the standard task file structure from `roles/planner.md` Phase 3, sized down for quick work: at minimum Task Header, Overview, Objectives, Implementation Details, Testing Requirements, and Acceptance Criteria.
+### Step 2: Tracker task = the task file (Manager)
+- The tracker task's `task.md` **is** the task file — do NOT create a separate `qt-<short-name>-task.md` or `-brief.md`. Check it covers the quick-work minimum (from `roles/planner.md` Phase 3, sized down): overview and objectives (in `## Описание`), testing requirements (short list in the description), acceptance criteria (`## Критерии готовности`).
 
 ### Step 3: Active Task Check and Lock on `main`
 Before locking, pull latest `main` and check for `.task-locks/qt-*.lock.json` with `status: ACTIVE`:
@@ -49,7 +45,7 @@ Before locking, pull latest `main` and check for `.task-locks/qt-*.lock.json` wi
 - ACTIVE locks of other agents: report, do not touch.
 - Multiple ACTIVE locks for this agent: stop and ask the user.
 
-**Lock creation** — full procedure in `guides/git_and_workflow_operations.md` Part 5. Summary: create `.task-locks/qt-<short-name>.lock.json` (`status: ACTIVE`, `workStage: IMPLEMENTATION_STARTED`, your `agentId`), commit brief + task file + lock on `main`, **push `main`** (retry loop Part 7 if rejected), then create branch `ai/qt-<short-name>` and a worktree.
+**Lock creation** — full procedure in `guides/git_and_workflow_operations.md` Part 5. Summary: create `.task-locks/qt-<short-name>.lock.json` (`status: ACTIVE`, `workStage: IMPLEMENTATION_STARTED`, your `agentId`); fill the tracker task's `branch:` (`ai/qt-<short-name>`) and `lock:` fields and set its `status: in-progress`; commit the tracker task folder + lock on `main`, **push `main`** (retry loop Part 7 if rejected), then create branch `ai/qt-<short-name>` and a worktree.
 
 ### Steps 4–8: Run the pipeline (all roles)
 Run [`guides/pipeline.md`](../guides/pipeline.md) with **lane = quick**: TDD implementation on the worktree branch (Coder), gate classification (Manager), read-only cross-context review (`.task-locks/artifacts/qt-<short-name>/review.md`), QA on the approved commit (`qa-report.md`), mandatory reflection (`reflection.md`), final merge and push with lock archival to `.task-locks/completed/`. Observe the circuit breakers (2 review rounds / 2 QA rounds → escalate to the user) and coordination-commit batching defined there.
@@ -57,15 +53,15 @@ Run [`guides/pipeline.md`](../guides/pipeline.md) with **lane = quick**: TDD imp
 QA-fail triage (Manager): minor changes (typos, small adjustments) → re-QA only; significant changes (new logic, structural) → back to review. All iterations tracked in lock history.
 
 ## Output
-- Quick Task Brief and task file in `.task-locks/`
+- Tracker task in `Tasks/` (description, attachments, comments; `branch`/`lock` filled, final status set)
 - Lock committed to `main` **and pushed** at start (with `agentId`)
 - Pipeline artifacts per `guides/pipeline.md` (review / QA report for code tasks; reflection always)
 - New/updated skills in the host skills directory (if any)
 - Final merge includes lock archival; `main` pushed; cleanup only after push confirmed
 
 ## Notes
-- If the user's request is too complex for a quick task (brief exceeds ~80 lines), recommend `idea_to_dev_plan` instead.
+- If the user's request is too complex for a quick task (description exceeds ~80 lines), recommend `idea_to_dev_plan` instead.
 - **Never** mark a task completed based on "implementation finished" — the pipeline's gates decide.
 - **Reflection is mandatory for ALL tasks**, including `DOCS_ONLY`.
-- All quick-task artifacts live in `.task-locks/` — no development-plan directory is needed.
+- Planning lives in the tracker (`Tasks/`): the task description IS the planning artifact. Execution artifacts (lock, review, QA, reflection) live in `.task-locks/` — no development-plan directory is needed.
 - In multi-agent mode, check for review/QA work before starting a new quick task.

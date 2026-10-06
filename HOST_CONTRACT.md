@@ -19,11 +19,16 @@ instead of guessing.
 3. **Task coordination root** — `.task-locks/` at the repository root (locks,
    `completed/`, `artifacts/`). The `flow` CLI and the pre-push gate expect
    this path; override only by forking the scripts.
-4. **Quality tooling declaration** — the host's root instructions must state
+4. **Task tracker** — `Tasks/` at the repository root: one folder per task,
+   format defined in [`guides/task_tracker.md`](guides/task_tracker.md). All
+   new tasks (including quick-lane ones) are registered here; the host
+   provides `Tasks/new.sh` + `Tasks/validate.sh` helpers and wires the
+   validator into its pre-commit hook.
+5. **Quality tooling declaration** — the host's root instructions must state
    the test command(s), linter, and build entry points the Coder and QA roles
    run. IskInFlow defines *who* runs them and *when*; the host defines *what*
    they are.
-5. **Agent identity** — the user (or Manager) assigns stable `agentId`s
+6. **Agent identity** — the user (or Manager) assigns stable `agentId`s
    (`agent-alpha`, `coder-opus5`, …). The `agentId` travels in every lock
    history entry.
 
@@ -49,6 +54,7 @@ enforcement. Install once per clone:
 - `commands/` — entry points (`idea_to_dev_plan`, `start_or_continue_next_task`,
   `quick_task`, `process_retrospective`)
 - `guides/` — `pipeline.md` (canonical stage/gate definition),
+  `task_tracker.md` (host task-tracker format),
   `git_and_workflow_operations.md` (lock/branch/worktree mechanics),
   `mcp_first_tooling.md`
 - `roles/` — manager, planner, coder, code_reviewer, qa_engineer, reflector

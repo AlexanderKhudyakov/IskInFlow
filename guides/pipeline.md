@@ -12,7 +12,7 @@ rules — prefer it over hand-editing lock files.
 | Parameter | `full` lane (`start_or_continue_next_task`) | `quick` lane (`quick_task`) |
 | --- | --- | --- |
 | Task IDs | `<NNN>` from a development plan | `qt-<short-name>` |
-| Planning artifact | task file in the development plan | `.task-locks/qt-<name>-brief.md` + `-task.md` |
+| Planning artifact | task file in the development plan | tracker task `Tasks/NNNN-<slug>/task.md` ([`task_tracker.md`](task_tracker.md)) |
 | Brief cap | n/a (full task file) | ~80 lines; over cap → switch to `full` lane |
 | Branch | `ai/<task-id>-<short-description>` | `ai/qt-<short-name>` |
 | Stages | identical | identical |
