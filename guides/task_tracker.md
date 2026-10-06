@@ -66,6 +66,9 @@ Naming rules:
   `done` / `cancelled` (deleting a folder silently frees its id for reuse —
   `new.sh` takes max-existing + 1). Archival needs are met by the task's own
   record, not by removal.
+- Numbering caps: task ids run 0001–9999, comments 001–999 per task — the
+  4-digit folder / 3-digit comment name patterns are the format's ceiling
+  (`new.sh` refuses to go past 9999).
 - Field values (`type`, `status`, …) are latin (grep-friendly); free text
   (title, description, comments) follows the host's language convention.
 - `task.md` is the only mandatory file; `attachments/` and `comments/` are
@@ -93,7 +96,7 @@ Optional fields:
 | `resolution` | enum | `fixed` \| `done` at `done`; `wont-fix` \| `duplicate` \| `obsolete` at `cancelled`. Forbidden otherwise. For `duplicate`, link the original in `relates-to` |
 | `assignee` | string | Owner |
 | `tags` | [string] | Topics for queries |
-| `blocked-by` | [int] | Task ids this task waits on |
+| `blocked-by` | [int] | Task ids this task waits on. Kept after unblocking — the record of what blocked the task (the external-blocker comment stays too) |
 | `relates-to` | [int] | Related tasks (duplicates, prior history) |
 | `branch` | string | Execution branch — always the lane's pattern: `ai/qt-<short-name>` (quick lane) or `ai/<NNN>-<desc>` with the plan-task number (full lane) |
 | `lock` | string | Lock path — real patterns: `.task-locks/qt-<name>.lock.json` (quick lane) or `.task-locks/<NNN>.lock.json` (plan tasks). Completed locks move to `.task-locks/completed/`; the field records the lock at execution time and need not be updated |
@@ -108,6 +111,9 @@ env:
   build: 1.4.2 (318)
   device: iPhone 16 Pro (simulator)
 ```
+
+List fields (`blocked-by`, `relates-to`, `tags`) accept both flow style
+(`[1, 2]`) and block style (`- 1`).
 
 ## Types
 
@@ -191,20 +197,28 @@ The host provides:
 
 - `Tasks/new.sh <type> <slug> ["Title"]` — creates the next-numbered task from
   the template;
-- `Tasks/validate.sh [folder…]` — format gate: required fields, closed YAML
-  frontmatter (tasks and comments), enum values, `type`×`resolution`,
-  id↔folder match and global id uniqueness, no stray entries under `Tasks/`
-  (every folder is `NNNN-slug`), body sections — `## Описание` for every type
-  plus the per-type ones (for non-`draft`/`cancelled`) and each mandatory
-  section must be non-empty (template placeholders don't count),
-  `blocked-by`/`relates-to` must reference existing ids (self-references
-  rejected; `resolution: duplicate` requires `relates-to`), `env` only on
-  `bug`, comment numbering sequential without gaps, `closed`+`resolution` on
-  closure (and forbidden
-  elsewhere), non-empty `blocked-by` or a blocking comment, `YYYY-MM-DD`
-  dates with `updated`/`closed` ≥ `created`, comment file names and
-  frontmatter. Hosts are encouraged to wire it into the pre-commit hook
-  (trigger on staged `Tasks/` paths).
+- `Tasks/validate.sh [folder…]` — format gate: folder/file structure, task
+  and comment frontmatter (schema — unknown keys rejected, enums,
+  cross-field rules), per-type body
+  sections and their non-emptiness, reference integrity of `blocked-by` /
+  `relates-to`, calendar-correct dates, comment numbering. **The detailed,
+  canonical checklist lives in the header comment of the script itself**
+  (`head Tasks/validate.sh`); docs keep only this summary to avoid drift.
+  Hosts wire it into the pre-commit hook (trigger on staged `Tasks/` paths).
+
+Mechanical limits (known, deliberate): the hooks are opt-in (`git config
+core.hooksPath Tools/hooks` per clone) and `--no-verify` bypasses them.
+Pre-commit validates the working tree, not the staged snapshot — a
+partial-stage guard rejects half-staged `Tasks/` files so the commit stays
+identical to what was validated. Deletions are invisible to pre-commit
+(diff-filter ACMR), so the pre-push hook validates the tracker against the
+**pushed tree** — the same discipline as `flow check-push` applies to locks —
+and rejects pushes that delete task folders. Status-transition legality
+(e.g. `draft` → `done` directly) and `assignee` presence at `in-progress`
+are not gated. Field formats beyond the stated checks are prose:
+`branch`/`lock`/`spec` patterns are not validated (`spec` is only checked
+non-empty at research `done`), and dates are calendar-checked but may lie in
+the future.
 
 ## Query recipes
 
