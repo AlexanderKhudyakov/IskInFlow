@@ -40,9 +40,10 @@ Key rules:
 ### Step 1: Select Next Task(s) (Manager)
 - If no ACTIVE lock exists (or user declined to resume), identify **all** eligible unblocked tasks from the current milestone. Selection criteria: `guides/git_and_workflow_operations.md` Part 9; full Manager authority: `roles/manager.md`.
 - **Parallel-first**: batch-lock all eligible tasks in a single commit (Part 5: Batch Lock Acquisition), then spawn one Task-tool agent per task **in a single message**.
+- **Tracker registry**: for each selected task, ensure a registry entry exists in the host task tracker (`Tasks/NNNN-<slug>/task.md`, format: [`guides/task_tracker.md`](../guides/task_tracker.md)): create it if missing (`Tasks/new.sh <type> <slug> "Title"`), fill `spec:` with the development-plan path. The plan file remains the planning artifact of the full lane; the registry entry is the task's user-facing record.
 
 ### Steps 2–8: Run the pipeline (all roles)
-Run [`guides/pipeline.md`](../guides/pipeline.md) with **lane = full**: lock acquisition and TDD implementation on a worktree feature branch (Coder), gate classification (Manager), read-only cross-context review, QA on the approved commit, mandatory reflection, final merge and push with lock archival. Observe the circuit breakers (2 review rounds / 2 QA rounds → escalate to the user) and the coordination-commit batching discipline defined there.
+Run [`guides/pipeline.md`](../guides/pipeline.md) with **lane = full**: lock acquisition and TDD implementation on a worktree feature branch (Coder), gate classification (Manager), read-only cross-context review, QA on the approved commit, mandatory reflection, final merge and push with lock archival. Observe the circuit breakers (2 review rounds / 2 QA rounds → escalate to the user) and the coordination-commit batching discipline defined there. Tracker registry updates along the way: `branch:`/`lock:` filled and `status: in-progress` at lock acquisition; `status: review` at final merge; `status: done` after the user accepts the result.
 
 ## Output
 - Task selection summary
@@ -50,6 +51,7 @@ Run [`guides/pipeline.md`](../guides/pipeline.md) with **lane = full**: lock acq
 - Feature branch `ai/...` created after the lock is on remote
 - Pipeline artifacts per `guides/pipeline.md` (review / QA report for code tasks; reflection always)
 - New/updated skills in the host skills directory (if any)
+- Tracker registry entry in `Tasks/` (`spec:` → development plan; status: `in-progress` at lock, `review` at merge, `done` at user acceptance)
 - Final merge includes lock archival; `main` pushed; cleanup only after push confirmed
 
 ## Multi-Agent Notes

@@ -156,7 +156,8 @@ readable:
 
 | Stage | Artifact | Path |
 | --- | --- | --- |
-| Plan (quick lane) | brief + task file | `.task-locks/qt-<name>-brief.md`, `-task.md` |
+| Plan (quick lane) | tracker task | `Tasks/NNNN-<slug>/task.md` ([`task_tracker.md`](task_tracker.md)) |
+| Merge | tracker task status → `review` (registry; both lanes) | `Tasks/NNNN-<slug>/task.md` |
 | Review | review report (round-numbered) | `.task-locks/artifacts/<task-id>/review.md` |
 | QA | QA report (with round + risk class) | `.task-locks/artifacts/<task-id>/qa-report.md` |
 | Reflection | reflection summary | `.task-locks/artifacts/<task-id>/reflection.md` |

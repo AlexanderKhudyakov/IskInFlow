@@ -48,12 +48,12 @@ Before locking, pull latest `main` and check for `.task-locks/qt-*.lock.json` wi
 **Lock creation** — full procedure in `guides/git_and_workflow_operations.md` Part 5. Summary: create `.task-locks/qt-<short-name>.lock.json` (`status: ACTIVE`, `workStage: IMPLEMENTATION_STARTED`, your `agentId`); fill the tracker task's `branch:` (`ai/qt-<short-name>`) and `lock:` fields and set its `status: in-progress`; commit the tracker task folder + lock on `main`, **push `main`** (retry loop Part 7 if rejected), then create branch `ai/qt-<short-name>` and a worktree.
 
 ### Steps 4–8: Run the pipeline (all roles)
-Run [`guides/pipeline.md`](../guides/pipeline.md) with **lane = quick**: TDD implementation on the worktree branch (Coder), gate classification (Manager), read-only cross-context review (`.task-locks/artifacts/qt-<short-name>/review.md`), QA on the approved commit (`qa-report.md`), mandatory reflection (`reflection.md`), final merge and push with lock archival to `.task-locks/completed/`. Observe the circuit breakers (2 review rounds / 2 QA rounds → escalate to the user) and coordination-commit batching defined there.
+Run [`guides/pipeline.md`](../guides/pipeline.md) with **lane = quick**: TDD implementation on the worktree branch (Coder), gate classification (Manager), read-only cross-context review (`.task-locks/artifacts/qt-<short-name>/review.md`), QA on the approved commit (`qa-report.md`), mandatory reflection (`reflection.md`), final merge and push with lock archival to `.task-locks/completed/`. Observe the circuit breakers (2 review rounds / 2 QA rounds → escalate to the user) and coordination-commit batching defined there. Tracker task status along the way: `status: review` at final merge; `status: done` + `closed`/`resolution` after the user accepts the result.
 
 QA-fail triage (Manager): minor changes (typos, small adjustments) → re-QA only; significant changes (new logic, structural) → back to review. All iterations tracked in lock history.
 
 ## Output
-- Tracker task in `Tasks/` (description, attachments, comments; `branch`/`lock` filled, final status set)
+- Tracker task in `Tasks/` (description, attachments, comments; `branch`/`lock` filled; status: `in-progress` at lock, `review` at merge, `done` at user acceptance)
 - Lock committed to `main` **and pushed** at start (with `agentId`)
 - Pipeline artifacts per `guides/pipeline.md` (review / QA report for code tasks; reflection always)
 - New/updated skills in the host skills directory (if any)

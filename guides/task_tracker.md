@@ -30,7 +30,9 @@ into `task.md`.
   starts, the task's `branch:` and `lock:` fields are filled in.
 - The **full lane** (`start_or_continue_next_task`) keeps its planning
   artifacts in development plans; the tracker task holds the registry entry
-  and links the plan via `spec:`.
+  and links the plan via `spec:`. The registry entry is created at task
+  selection, set `in-progress` at lock acquisition, `review` at final merge,
+  and `done` when the user accepts the result.
 - Historical `qt-` briefs and numbered plan tasks are legacy; they are not
   migrated forcibly.
 
@@ -60,6 +62,10 @@ Naming rules:
 - Ids are sequential, monotonically growing, **never reused**. Next id =
   max existing + 1 (`new.sh` does this). Tracker ids are independent of any
   historical numbering (plan-task locks, `qt-` names).
+- Task folders are **never deleted**: finished or abandoned work closes via
+  `done` / `cancelled` (deleting a folder silently frees its id for reuse —
+  `new.sh` takes max-existing + 1). Archival needs are met by the task's own
+  record, not by removal.
 - Field values (`type`, `status`, …) are latin (grep-friendly); free text
   (title, description, comments) follows the host's language convention.
 - `task.md` is the only mandatory file; `attachments/` and `comments/` are
@@ -89,7 +95,7 @@ Optional fields:
 | `tags` | [string] | Topics for queries |
 | `blocked-by` | [int] | Task ids this task waits on |
 | `relates-to` | [int] | Related tasks (duplicates, prior history) |
-| `branch` | string | Execution branch, e.g. `ai/0001-crash-on-search` |
+| `branch` | string | Execution branch — always the lane's pattern: `ai/qt-<short-name>` (quick lane) or `ai/<NNN>-<desc>` with the plan-task number (full lane) |
 | `lock` | string | Lock path — real patterns: `.task-locks/qt-<name>.lock.json` (quick lane) or `.task-locks/<NNN>.lock.json` (plan tasks). Completed locks move to `.task-locks/completed/`; the field records the lock at execution time and need not be updated |
 | `spec` | string | Path to the spec/plan in host docs (the output of research tasks). Points at the **current** spec location — completed work graduates to the docs archive, update the link then |
 | `env` | map | Bugs only: reproduction environment |
@@ -140,7 +146,7 @@ Transitions:
 | --- | --- | --- |
 | `draft` | `open` | Description complete |
 | `open` | `in-progress` | Taken |
-| `draft`, `open`, `in-progress` | `blocked` | `blocked-by:` is mandatory; if the blocker is not a tracker task — a comment with the reason |
+| `draft`, `open`, `in-progress` | `blocked` | Blocker is a tracker task: non-empty `blocked-by:` with existing ids. Blocker is external (no tracker task): leave `blocked-by:` empty and add a reason comment `comments/NNN-blocked-<slug>.md` |
 | `blocked` | `open` / `in-progress` / `review` | Unblocked — return to the previous status (incl. `review` for blockers found at acceptance) |
 | `in-progress` | `review` | Execution complete, handed over for acceptance |
 | `review` | `done` | Accepted: `closed` + `resolution` (`fixed` for bugs, `done` otherwise) |
@@ -168,6 +174,10 @@ Comment text.
 are mandatory to follow and are revisited only by a new decision comment —
 never by editing an old one. Comments are append-only: replies are new files.
 
+Special naming: a comment explaining an **external blocker** is named
+`NNN-blocked-<slug>.md` (see the `blocked` transition) — the validator looks
+for exactly this pattern when `blocked-by:` is empty.
+
 ## Attachments
 
 Files live in `attachments/` and are referenced with relative links from
@@ -183,9 +193,14 @@ The host provides:
   the template;
 - `Tasks/validate.sh [folder…]` — format gate: required fields, closed YAML
   frontmatter (tasks and comments), enum values, `type`×`resolution`,
-  id↔folder match and global id uniqueness, body sections — `## Описание` for
-  every type plus the per-type ones (for non-`draft`/`cancelled`),
-  `closed`+`resolution` on closure (and forbidden
+  id↔folder match and global id uniqueness, no stray entries under `Tasks/`
+  (every folder is `NNNN-slug`), body sections — `## Описание` for every type
+  plus the per-type ones (for non-`draft`/`cancelled`) and each mandatory
+  section must be non-empty (template placeholders don't count),
+  `blocked-by`/`relates-to` must reference existing ids (self-references
+  rejected; `resolution: duplicate` requires `relates-to`), `env` only on
+  `bug`, comment numbering sequential without gaps, `closed`+`resolution` on
+  closure (and forbidden
   elsewhere), non-empty `blocked-by` or a blocking comment, `YYYY-MM-DD`
   dates with `updated`/`closed` ≥ `created`, comment file names and
   frontmatter. Hosts are encouraged to wire it into the pre-commit hook
