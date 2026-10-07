@@ -70,6 +70,11 @@ Naming rules:
 - Numbering caps: task ids run 0001–9999, comments 001–999 per task — the
   4-digit folder / 3-digit comment name patterns are the format's ceiling
   (`new.sh` refuses to go past 9999).
+- Lock naming: tracker locks are `<NNNN>.lock.json` (4-digit, keyed to the
+  tracker id) and deliberately coexist with legacy unpadded plan locks
+  (`263.lock.json`) — padding prevents filename collisions, but number-based
+  greps over `.task-locks/` will match both forms; keep that in mind when
+  tracing a task id into locks.
 - Field values (`type`, `status`, …) are latin (grep-friendly); free text
   (title, description, comments) follows the host's language convention.
 - `task.md` is the only mandatory file; `attachments/` and `comments/` are
@@ -99,8 +104,8 @@ Optional fields:
 | `tags` | [string] | Topics for queries |
 | `blocked-by` | [int] | Task ids this task waits on. Kept after unblocking — the record of what blocked the task (the external-blocker comment stays too) |
 | `relates-to` | [int] | Related tasks (duplicates, prior history) |
-| `branch` | string | Execution branch — always the lane's pattern: `ai/qt-<short-name>` (quick lane) or `ai/<NNN>-<desc>` with the plan-task number (full lane) |
-| `lock` | string | Lock path — real patterns: `.task-locks/qt-<name>.lock.json` (quick lane) or `.task-locks/<NNN>.lock.json` (plan tasks). Completed locks move to `.task-locks/completed/`; the field records the lock at execution time and need not be updated |
+| `branch` | string | Execution branch, keyed to the task id: `ai/<NNNN>-<slug>` (tracker id — the norm, e.g. `ai/0001-discovery-dedup`). Legacy: `ai/qt-<name>` (old quick lane), `ai/<NNN>-<desc>` (old plan numbering) |
+| `lock` | string | Lock path — real patterns: `.task-locks/<NNNN>.lock.json` (tracker id, 4-digit — the norm; `taskId` = the tracker id, `planFile` points at the tracker task) or legacy `.task-locks/qt-<name>.lock.json` / unpadded `<NNN>.lock.json`. Completed locks move to `.task-locks/completed/`; the field records the lock at execution time and need not be updated |
 | `spec` | string | Path to the spec/plan in host docs (the output of research tasks). Points at the **current** spec location — completed work graduates to the docs archive, update the link then |
 | `env` | map | Bugs only: reproduction environment |
 
@@ -136,7 +141,9 @@ exempt. For `bug`, the `**Фактическое поведение:**` /
 `**Ожидаемое поведение:**` labels must be present inside
 `## Шаги воспроизведения`; the text after them is not gated. For research
 types, `## Результат` holds the outcome — hence the header-only requirement
-until acceptance.
+until acceptance. At `done`, `## Критерии готовности` must not contain
+unchecked `- [ ]` items — closing with an open checkbox of one's own plan
+is rejected.
 
 Adding a new type means editing **three places**: this guide, the host's
 `new.sh` (type whitelist), and the host's `validate.sh` (enum + per-type body
@@ -232,7 +239,8 @@ the future. Degrade-on-absence: if a pushed tree has tasks but no runnable
 `Tasks/validate.sh` (removed or non-executable), the hook gates downgrade to
 a WARN instead of failing — deliberate, so archived trees stay pushable; and
 the deletion gate protects task folders only, not the tracker's service
-files (the validator itself is not deletion-protected).
+files (the validator itself is not deletion-protected). Nested fences
+(```` inside ```) are not supported by the fence stripper.
 
 ## Query recipes
 
