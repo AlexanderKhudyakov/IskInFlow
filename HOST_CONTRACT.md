@@ -60,4 +60,4 @@ enforcement. Install once per clone:
 - `roles/` — manager, planner, coder, code_reviewer, qa_engineer, reflector
 - `scripts/` — `flow` CLI (validate / new / transition / check-push / metrics)
   and the `pre-push.flow` git hook
-- `templates/` — review, QA report, task file, review request/response
+- `templates/` — review, QA report, task file, tracker task, review request/response

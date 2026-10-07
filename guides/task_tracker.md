@@ -44,7 +44,7 @@ Tasks/
 ├── new.sh               ← create a task (next id + template)
 ├── validate.sh          ← format validation (run by hand, pre-commit, pre-push)
 ├── tests.sh             ← regression tests for the validator
-├── _template/task.md    ← template
+├── _template/task.md    ← host copy of this repo's templates/tracker-task-template.md
 ├── 0001-<slug>/         ← one task = one folder
 │   ├── task.md          ← the only mandatory file
 │   ├── attachments/     ← optional, created when needed
@@ -52,6 +52,11 @@ Tasks/
 │       └── 001-<slug>.md
 └── 0002-<slug>/…
 ```
+
+The canonical task template is
+[`templates/tracker-task-template.md`](../templates/tracker-task-template.md)
+in this repo; hosts copy it to `Tasks/_template/task.md` (that is where
+`new.sh` reads it).
 
 Naming rules:
 
@@ -147,7 +152,8 @@ is rejected.
 
 Adding a new type means editing **three places**: this guide, the host's
 `new.sh` (type whitelist), and the host's `validate.sh` (enum + per-type body
-sections) — plus the host's template if new body sections appear.
+sections) — plus `templates/tracker-task-template.md` here if new body
+sections appear (hosts refresh their `Tasks/_template/` copy).
 
 ## Statuses and transitions
 
@@ -210,6 +216,8 @@ externally (Cloud, iCloud) in the description or a comment.
 
 The host provides:
 
+- a copy of [`templates/tracker-task-template.md`](../templates/tracker-task-template.md)
+  at `Tasks/_template/task.md`;
 - `Tasks/new.sh <type> <slug> ["Title"]` — creates the next-numbered task from
   the template;
 - `Tasks/validate.sh [folder…]` — format gate: folder/file structure, task
