@@ -42,7 +42,8 @@ into `task.md`.
 Tasks/
 ├── README.md            ← host cheat sheet (links here)
 ├── new.sh               ← create a task (next id + template)
-├── validate.sh          ← format validation (run by hand and from pre-commit)
+├── validate.sh          ← format validation (run by hand, pre-commit, pre-push)
+├── tests.sh             ← regression tests for the validator
 ├── _template/task.md    ← template
 ├── 0001-<slug>/         ← one task = one folder
 │   ├── task.md          ← the only mandatory file
@@ -210,7 +211,8 @@ The host provides:
   integrity of `blocked-by` / `relates-to` (including cycles), calendar
   dates, comment numbering. **The detailed, canonical checklist lives in
   the header comment of the script itself** (`head Tasks/validate.sh`);
-  docs keep only this summary to avoid drift.
+  docs keep only this summary to avoid drift. Regression tests:
+  `Tasks/tests.sh` (sandboxed — never touches the real tracker).
   Hosts wire it into the pre-commit hook (trigger on staged `Tasks/` paths).
 
 Mechanical limits (known, deliberate): the hooks are opt-in (`git config
