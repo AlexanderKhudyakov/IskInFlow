@@ -212,7 +212,8 @@ The host provides:
   dates, comment numbering. **The detailed, canonical checklist lives in
   the header comment of the script itself** (`head Tasks/validate.sh`);
   docs keep only this summary to avoid drift. Regression tests:
-  `Tasks/tests.sh` (sandboxed — never touches the real tracker).
+  `Tasks/tests.sh` (sandboxed — never touches the real tracker); the host's
+  pre-commit runs them automatically whenever the validator itself changes.
   Hosts wire it into the pre-commit hook (trigger on staged `Tasks/` paths).
 
 Mechanical limits (known, deliberate): the hooks are opt-in (`git config
