@@ -17,11 +17,61 @@ rules — prefer it over hand-editing lock files.
 | Branch | `ai/<task-id>-<short-description>` | `ai/qt-<short-name>` |
 | Stages | identical | identical |
 
+## Change surfaces and staffing (set by the Manager)
+
+A **surface** is a property of the task's diff: which classes of files it
+touches (the host declares the path-class map per `HOST_CONTRACT.md`). The
+enum is closed:
+
+```
+CODE | DOCS | MIXED | NONE
+```
+
+**Derivation rule** (mechanical, over the host's path classes): a diff sets a
+CODE flag when it touches any CODE-class path and a DOCS flag when it touches
+any DOCS-class path; the four enum values are the four flag combinations.
+**Surface-neutral** — sets neither flag: SKILLS-class paths
+(`.agents/skills/**`), the coordination class `.task-locks/**` (every task
+diff touches it), and hook-owned memory `.memsearch/**` (auto-committed by
+session hooks onto whatever branch is checked out — never authored by a task).
+So a skills-only change is `NONE` and a code+skills change is `CODE`.
+
+**Staffing matrix** — who implements and which gates run, derived from the
+surface:
+
+| Surface | Implementation | Review | QA |
+| --- | --- | --- | --- |
+| `CODE` | coder | code review, `reviewKind: code` | full QA (`qa: full`), depth by risk class |
+| `DOCS` | tech_writer | cross-context docs review, `reviewKind: docs` | skipped (`qa: skipped`, evidence recorded) |
+| `DOCS` — tracker-only subcase (`docsScope: tracker-only`) | tech_writer | skipped with evidence (`CODE_REVIEW_SKIPPED`) — the carve-out for diffs under `Tasks/**` only | skipped |
+| `MIXED` | coder first, **then** tech_writer documenting the final behavior | single review carrying both checklists, `reviewKind: mixed` | QA on the code portion (`qa: code-only`) |
+| `NONE` | the role owning the touched path class (e.g. reflector for skills) | skipped with evidence (`CODE_REVIEW_SKIPPED`) | skipped |
+
+Mixed-task ordering is mandatory: **docs are written after code is final**,
+describing implemented reality rather than intent. `implementedBy` names the
+primary implementer (the coder for `MIXED`); additional implementer rounds
+are recorded via history entries with their `agentId` and in
+`roles.actual.implementers`.
+
+**Predicted vs verified.** Staffing is decided twice, symmetric to how risk
+classes are recorded: **predicted** from the task's declared scope, filled
+into `roles.predicted` at lock creation (`flow new --surface`); **verified**
+at gate classification from `git diff --name-only main...<branch>` (`flow
+classify` sets `changeSurface` and `roles.actual`, with diff evidence in lock
+history). A predicted `MIXED` that verifies as `CODE` or `DOCS` is a benign
+narrowing — recorded in history, no waiver needed. Any other mismatch is
+treated exactly like a disproven premise: back into work or escalate to the
+user — never a silent re-staff.
+
 ## Risk classes (set by the Manager at gate classification)
 
-| Class | Definition | Review | QA depth |
+Two values, governing **depth only** — review depth and QA phase depth within
+the surface-derived staffing. Gate **participation** (does this gate run at
+all?) derives from the diff surface (staffing matrix above), never from the
+risk class.
+
+| Class | Definition | Review depth | QA depth |
 | --- | --- | --- | --- |
-| `DOCS_ONLY` | diff touches no code/test files (`git diff --name-only main...` proves it) | skip (record evidence) | skip (record evidence) |
 | `STANDARD` | default for code/test changes | full | Phases 1–3 + risk-based slice of Phase 4 |
 | `CRITICAL` | concurrency, persistence/migrations, security, data loss, cross-component contracts | full | all QA phases incl. exploratory |
 
@@ -32,7 +82,8 @@ classify up (STANDARD → CRITICAL), never down.
 
 ```
 IMPLEMENTATION_STARTED ──► IMPLEMENTATION_COMPLETE
-        │ (gate: TDD suite green, linter clean, self-review checklist done)
+        │ (gate: the implementer's exit checklist — code: TDD suite green,
+        │  linter clean, self-review done; docs: referential verification)
         ▼
 review gate ─────────────► CODE_REVIEW_APPROVED   (or CHANGES_REQUESTED fix loop)
         │ (gate: reviewer is a DIFFERENT context; review is read-only)
@@ -52,6 +103,13 @@ IskInFlow/scripts/flow transition <lock> <STAGE> --agent <id> --reason "…"
 IskInFlow/scripts/flow metrics                           # lead time / rework statistics
 ```
 
+The review artifact carries `reviewKind: code | docs | mixed`, set by the
+diff surface (staffing matrix above). Gate skips reuse the `*_SKIPPED`
+stages with evidence recorded in lock history; one unconditional transition
+edge exists for docs-surface review — `CODE_REVIEW_APPROVED → QA_SKIPPED`.
+`NONE` and tracker-only `DOCS` keep the existing
+`CODE_REVIEW_SKIPPED → QA_SKIPPED` path.
+
 `flow transition` refuses illegal gate transitions (use plain history entries
 for checkpoints — progress notes, corrections, round bookkeeping — without
 moving `workStage`). A `pre-push` hook (`scripts/pre-push.flow`) blocks pushes
@@ -60,23 +118,27 @@ required artifacts.
 
 ## Roles per stage
 
-- **Lock + plan**: Manager classifies risk, Coder acquires the lock (lock-first,
-  pushed to `main` before any implementation — see
-  `git_and_workflow_operations.md` Part 5).
-- **Implementation**: Coder (TDD; `roles/coder.md`).
-- **Review**: Code Reviewer — **never the implementation context**
-  (`roles/code_reviewer.md`).
-- **QA**: QA Engineer — **never the implementation context**; runs after review
-  approval (`roles/qa_engineer.md`).
-- **Reflection**: any agent, mandatory for every task (`roles/reflector.md`).
+- **Lock + plan**: Manager acquires the lock and records predicted staffing
+  (`flow new --surface`; lock-first, pushed to `main` before any
+  implementation — see `git_and_workflow_operations.md` Part 5).
+- **Implementation**: per the staffing matrix — the coder leads `CODE` and
+  `MIXED` (TDD; `roles/coder.md`); the tech_writer implements `DOCS` and
+  documents the final behavior after the coder in `MIXED`
+  (`roles/tech_writer.md`).
+- **Review**: Code Reviewer for the code surface, docs review for the docs
+  surface — **never the implementation context** (`roles/code_reviewer.md`).
+- **QA**: QA Engineer — **never the implementation context**; runs after
+  review approval, gated by the surface (`roles/qa_engineer.md`).
+- **Reflection**: any agent, mandatory for every task, on every surface
+  (`roles/reflector.md`).
 - **Merge + push**: Manager (or Coder on Manager's instruction) — only after
   all required gates.
 
 ## Review loop (with circuit breaker)
 
 ```
-IMPLEMENTATION_COMPLETE → review → APPROVED → proceed to QA
-                        → CHANGES_REQUESTED → coder fixes all feedback → re-review
+IMPLEMENTATION_COMPLETE → review → APPROVED → QA gate (or QA_SKIPPED for docs-surface review)
+                        → CHANGES_REQUESTED → the surface-owning role fixes all feedback → re-review
 ```
 
 - **Round limit**: after **2** `CODE_REVIEW_CHANGES_REQUESTED` rounds on the
@@ -104,13 +166,15 @@ CODE_REVIEW_APPROVED → QA → PASS → reflection
 
 Findings from review, QA, or reflection that require **any repository change**
 (code, tests, docs, config, workflow scripts) are *work*, not notes: the
-Manager returns them to the Coder, and the task loops again (fix → re-review /
-re-QA as triage dictates) before `MERGED`. Recording an actionable finding as
-a "follow-up" for a future task is not permitted.
+Manager routes them by surface — docs findings return to the tech_writer,
+code findings to the coder (a mixed task may need both rounds) — and the task
+loops again (fix → re-review / re-QA as triage dictates) before `MERGED`.
+Recording an actionable finding as a "follow-up" for a future task is not
+permitted.
 
 - Follow-ups are tracked as `- [ ]` checkboxes in the task's artifacts
-  (`.task-locks/artifacts/<task-id>/*.md`); the Coder's fix commit flips them
-  to `- [x]` **in the same task**.
+  (`.task-locks/artifacts/<task-id>/*.md`); the owning role's fix commit
+  flips them to `- [x]` **in the same task**.
 - `flow transition … MERGED` refuses while the artifacts still contain
   unchecked `- [ ]` items. `--force` overrides; a forced merge MUST record the
   user's waiver in the lock history (`reason: "user waived: …"`).
@@ -137,7 +201,7 @@ the lock, and is a process smell worth recording for the retrospective.
 
 ## Coordination commit discipline (commit-noise control)
 
-Coordination data (locks, briefs, artifacts) rides on `main`. To keep history
+Coordination data (locks, artifacts) rides on `main`. To keep history
 readable:
 
 - On `main` itself only two commits per task are allowed (lock acquisition and
@@ -156,6 +220,7 @@ readable:
 
 | Stage | Artifact | Path |
 | --- | --- | --- |
+| Any stage | researcher report (cited evidence; plain bullets, no checkbox items) | `.task-locks/artifacts/<task-id>/research-*.md` |
 | Plan (quick lane) | tracker task | `Tasks/NNNN-<slug>/task.md` ([`task_tracker.md`](task_tracker.md)) |
 | Merge | tracker task status → `review` (registry; both lanes) | `Tasks/NNNN-<slug>/task.md` |
 | Review | review report (round-numbered) | `.task-locks/artifacts/<task-id>/review.md` |

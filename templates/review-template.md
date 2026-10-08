@@ -6,7 +6,14 @@
 **Reviewer**: <agentId / reviewing context>
 **Review Date**: [Date]
 **Review Round**: [1 / 2 — at 2 rounds ending in REQUEST_CHANGES the Manager escalates to the user]
+**Review Kind**: [code / docs / mixed — set by the diff surface (guides/pipeline.md staffing matrix); `docs` and `mixed` carry the Docs Review Checklist below]
 **Status**: [APPROVED / REQUEST_CHANGES / COMMENT]
+
+> **Checkbox rule (all review kinds)**: the MERGED gate refuses while any
+> artifact still contains an unchecked `- [ ]` (`guides/pipeline.md`
+> "Follow-up policy"). Tick what you verified; **delete** every checkbox and
+> section the Review Kind makes inapplicable — never leave them unchecked. A
+> completed review artifact ends with zero unchecked boxes.
 
 ## Summary
 
@@ -23,6 +30,29 @@
 - [ ] Criterion 1: [Status and notes]
 - [ ] Criterion 2: [Status and notes]
 - [ ] Criterion 3: [Status and notes]
+
+## Docs Review Checklist (reviewKind: docs / mixed)
+
+- Required in full for `reviewKind: docs` and `reviewKind: mixed`.
+- For `reviewKind: docs`, **delete** the code-oriented checkbox content of
+  this template instead of leaving it unchecked: the Detailed Review
+  categories Code Quality / Testing / Security / Performance (keep
+  Documentation and Architecture & Design if useful), the Checklist
+  Summary's code items ("All tests passing", "Adequate test coverage",
+  "No security vulnerabilities", "Error handling", "No major refactoring",
+  performance items), and the Testing rows under Task Completion Assessment
+  if the task defines none. Keep: Summary, the task's Objectives and
+  Acceptance Criteria, this checklist, Positive Feedback, Decision,
+  Next Steps.
+- For `reviewKind: code`, **delete this section** (including the checkboxes
+  below) and complete the code checklist instead.
+
+- [ ] **Accuracy vs implemented behavior** — every behavioral claim matches what the implemented code actually does (verified against the diff, not the plan's intent)
+- [ ] **Internal consistency** — the changed docs agree with themselves and with the sibling docs they reference
+- [ ] **Link/target validity** — every relative link, file path, and command in the changed docs resolves against the tree
+- [ ] **Terminology consistency** — terms match the host's docs style and the established vocabulary of the docs surface
+
+---
 
 ## Review Findings
 
@@ -185,6 +215,10 @@
 ---
 
 ## Checklist Summary
+
+(Delete items the Review Kind makes inapplicable — see the checkbox rule at
+the top; a docs review deletes the code items rather than leaving them
+unchecked.)
 
 ### Must Have (Before Approval)
 - [ ] All task objectives complete
