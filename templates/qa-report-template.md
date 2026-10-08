@@ -6,7 +6,9 @@
 **QA Engineer**: <agentId / QA context>
 **Test Date**: [Date and Time]
 **QA Round**: [1 / 2 — at 2 FAIL rounds the Manager escalates to the user]
-**Risk Class**: [DOCS_ONLY / STANDARD / CRITICAL — sets Phase 4 depth]
+**Diff Surface**: [CODE / DOCS / MIXED / NONE — verified at gate classification (`flow classify`)]
+**QA Mode**: [full / code-only / skipped — derived from the surface, never the risk class (guides/pipeline.md); for `skipped` no report is written — skip evidence lives in lock history]
+**Risk Class**: [STANDARD / CRITICAL — sets QA depth within `qa: full`]
 **Status**: [PASS ✅ / FAIL ❌ / CONDITIONAL_PASS ⚠️]
 
 ---

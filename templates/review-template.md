@@ -6,6 +6,7 @@
 **Reviewer**: <agentId / reviewing context>
 **Review Date**: [Date]
 **Review Round**: [1 / 2 — at 2 rounds ending in REQUEST_CHANGES the Manager escalates to the user]
+**Review Kind**: [code / docs / mixed — set by the diff surface (guides/pipeline.md staffing matrix); `docs` and `mixed` carry the Docs Review Checklist below]
 **Status**: [APPROVED / REQUEST_CHANGES / COMMENT]
 
 ## Summary
@@ -23,6 +24,19 @@
 - [ ] Criterion 1: [Status and notes]
 - [ ] Criterion 2: [Status and notes]
 - [ ] Criterion 3: [Status and notes]
+
+## Docs Review Checklist (reviewKind: docs / mixed)
+
+Required in full for `reviewKind: docs` and `reviewKind: mixed`; not applied
+for `reviewKind: code`. For a docs review, the code-oriented sections below
+(code quality, testing, security, performance) do not apply.
+
+- [ ] **Accuracy vs implemented behavior** — every behavioral claim matches what the implemented code actually does (verified against the diff, not the plan's intent)
+- [ ] **Internal consistency** — the changed docs agree with themselves and with the sibling docs they reference
+- [ ] **Link/target validity** — every relative link, file path, and command in the changed docs resolves against the tree
+- [ ] **Terminology consistency** — terms match the host's docs style and the established vocabulary of the docs surface
+
+---
 
 ## Review Findings
 

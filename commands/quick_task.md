@@ -62,6 +62,6 @@ QA-fail triage (Manager): minor changes (typos, small adjustments) → re-QA onl
 ## Notes
 - If the user's request is too complex for a quick task (description exceeds ~80 lines), recommend `idea_to_dev_plan` instead.
 - **Never** mark a task completed based on "implementation finished" — the pipeline's gates decide.
-- **Reflection is mandatory for ALL tasks**, including `DOCS_ONLY`.
+- **Reflection is mandatory for ALL tasks, on every surface.**
 - Planning lives in the tracker (`Tasks/`): the task description IS the planning artifact. Execution artifacts (lock, review, QA, reflection) live in `.task-locks/` — no development-plan directory is needed.
 - In multi-agent mode, check for review/QA work before starting a new quick task.

@@ -13,8 +13,8 @@ Six roles cooperate through a git-anchored state machine. Coordination state liv
 ```
 Planner                    Coder            Code Reviewer        QA Engineer         Reflector
 idea → spec → plan   →   TDD on branch   →   read-only diff   →   authoritative   →   knowledge
-(CRITICAL/STANDARD/        + worktree          review, fresh        test run,         extracted to
- DOCS_ONLY lanes)                               context              functional         host skills
+(STANDARD/CRITICAL lanes)  + worktree          review, fresh        test run,         extracted to
+                                               context              functional         host skills
                                                                      verification
         Manager — orchestrates: selection, gate classification, circuit breakers, merge
 ```

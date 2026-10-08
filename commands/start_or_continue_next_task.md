@@ -80,5 +80,5 @@ If `git push origin main` is rejected because another agent pushed first:
 ## Notes
 - If no eligible task is found, report blockers and recommend next action.
 - **Never** mark a task completed based on "implementation finished" — the pipeline's gates decide.
-- **Reflection is mandatory for ALL tasks**, including `DOCS_ONLY`.
+- **Reflection is mandatory for ALL tasks, on every surface.**
 - In multi-agent mode, check for review/QA work before starting a new implementation task.

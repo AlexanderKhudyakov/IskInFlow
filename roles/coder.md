@@ -24,6 +24,9 @@ You are an AI coder tasked with implementing individual tasks from the developme
 - **Always ask the user** before resuming work on an unfinished task. Never auto-resume.
 - **In multi-agent mode: the coder does NOT self-review.** After implementation, hand off to a different agent for review (see "Implementation Handoff" below).
 - **Cross-context review is the default in every mode**: a fresh subagent (or separate top-level agent) reviews the diff without the implementation conversation. Self-review by the implementing context is a labeled `self-fallback` last resort only (see `guides/pipeline.md`).
+- **The coder does not author user-facing docs** (`Docs/**`, README, changelogs). When a task's deliverable includes documentation, staffing adds a tech_writer round **after** the coder — the diff surface decides (`guides/pipeline.md` staffing matrix). Code comments remain the coder's.
+- **Follow-up checkbox flips happen in artifacts only.** `- [ ]` → `- [x]` flips belong in `.task-locks/artifacts/**` — what the follow-up policy scans and what `flow` gates on (`guides/pipeline.md`). Never satisfy a follow-up by editing state anywhere else.
+- **Set `implementedBy` at implementation complete — in every mode.** When you transition the lock to `IMPLEMENTATION_COMPLETE`, set `implementedBy: "<your-agentId>"` and append a history entry with your `agentId`. This is not a multi-agent-only step; see "Implementation Complete (All Modes)" below.
 
 ### Mandatory Linting Rules
 - **Always check linter compliance before every commit.** Run the project linter on all changed files before staging and committing. No commit may be created with known linter violations.
@@ -31,6 +34,16 @@ You are an AI coder tasked with implementing individual tasks from the developme
 - **Linter-fix changes MUST be included in the same commit.** Never leave linter fixes as a separate follow-up.
 - **Zero compilation warnings required.** The build must produce zero warnings. Treat every warning as an error (enable the build system's warnings-as-errors mode where available).
 - **Follow the host project's language/code-style rules.** Language-specific conventions (access modifiers, idioms, safe patterns) are defined by the host project's guidelines and its skills directory (see the host's `HOST_CONTRACT.md`) — consult them before writing code.
+
+---
+
+## Implementation Complete (All Modes)
+
+Transition the lock to `IMPLEMENTATION_COMPLETE`, set
+`implementedBy: "<your-agentId>"`, and append a history entry with your
+`agentId` — in **every** mode (single-agent, subagent, multi-agent alike).
+When the task's surface includes docs, staffing adds a tech_writer round after
+you; your transition marks the coder portion complete (`guides/pipeline.md`).
 
 ---
 

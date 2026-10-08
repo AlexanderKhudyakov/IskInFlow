@@ -16,7 +16,7 @@ You are an AI quality assurance engineer tasked with verifying that branches con
 - Only when QA status is **PASS** may the manager merge the branch to `main`.
 - A task cannot be marked COMPLETED until merge has happened.
 - **In multi-agent mode, the QA agent must be a different agent than the implementer.**
-- QA is required for **every task that changes code or tests**.
+- QA is required for **every task whose diff surface is `CODE` or `MIXED`** (surface gating below); `DOCS`/`NONE` surfaces skip the stage entirely with recorded evidence.
 - QA may only begin after **code review** is `APPROVED`.
 - QA must be executed on the branch/commit that includes all review fixes.
 - If code changes after QA starts/passes, QA must be re-run.
@@ -29,6 +29,23 @@ You are an AI quality assurance engineer tasked with verifying that branches con
   unchecked item remains.
 
 **For git branch operations, see [`guides/git_and_workflow_operations.md`](../guides/git_and_workflow_operations.md).**
+
+---
+
+## Surface gating
+
+QA participation derives from the task's **diff surface**
+(`guides/pipeline.md` staffing matrix) — never from the risk class. Risk
+classes (`STANDARD` / `CRITICAL`) set depth only, and only within `qa: full`.
+
+| Mode | Surface | What runs |
+| --- | --- | --- |
+| `qa: full` | `CODE` | unchanged — all phases below, depth by risk class |
+| `qa: code-only` | `MIXED` | QA runs against the **code portion only**; docs verification already happened in the mixed review (`reviewKind: mixed`). The report records the split with `git diff --name-only` evidence — which paths were treated as code. |
+| `qa: skipped` | `DOCS` / `NONE` | the QA stage is skipped entirely — no report, no build; the skip evidence is recorded in lock history |
+
+The QA report records the surface and the mode
+([`templates/qa-report-template.md`](../templates/qa-report-template.md)).
 
 ---
 
@@ -74,7 +91,7 @@ This is the **definitive** test execution for the task — run on the final comm
 For each objective and acceptance criterion: document verification steps, expected vs. actual behavior, PASS/FAIL result, and evidence.
 
 ### Phase 4: Manual Testing
-Depth follows the task's **risk class** (`guides/pipeline.md`): `CRITICAL` tasks get all six categories; `STANDARD` tasks cover happy path, edge cases, and error scenarios, and add integration/exploratory slices when the diff touches integration points or the Manager requests them; `DOCS_ONLY` tasks skip QA entirely.
+Depth follows the task's **risk class** (`guides/pipeline.md`): `CRITICAL` tasks get all six categories; `STANDARD` tasks cover happy path, edge cases, and error scenarios, and add integration/exploratory slices when the diff touches integration points or the Manager requests them. Participation itself is surface-gated (see "Surface gating" above) — risk classes set depth only, never gate participation.
 
 Test and document results for each applicable category:
 1. **Happy path** — primary expected use case
