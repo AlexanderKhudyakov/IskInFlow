@@ -20,7 +20,7 @@ You are an AI coder tasked with implementing individual tasks from the developme
 - The coder **must not** mark a task as COMPLETED.
 - The coder's responsibility is to reach "ready for review" (tests passing, objectives met, self-reviewed) and then hand off for **mandatory code review**.
 - QA **must not** be performed until code review is approved.
-- Keep the task lock file current: whenever you reach a significant checkpoint, update `workState` and append a transition record. **Include your `agentId` in every history entry.**
+- Keep the task lock file current: whenever you reach a significant checkpoint, update `workStage` and append a transition record. **Include your `agentId` in every history entry.**
 - **Always ask the user** before resuming work on an unfinished task. Never auto-resume.
 - **In multi-agent mode: the coder does NOT self-review.** After implementation, hand off to a different agent for review (see "Implementation Handoff" below).
 - **Cross-context review is the default in every mode**: a fresh subagent (or separate top-level agent) reviews the diff without the implementation conversation. Self-review by the implementing context is a labeled `self-fallback` last resort only (see `guides/pipeline.md`).

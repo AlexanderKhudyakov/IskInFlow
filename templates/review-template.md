@@ -9,6 +9,12 @@
 **Review Kind**: [code / docs / mixed — set by the diff surface (guides/pipeline.md staffing matrix); `docs` and `mixed` carry the Docs Review Checklist below]
 **Status**: [APPROVED / REQUEST_CHANGES / COMMENT]
 
+> **Checkbox rule (all review kinds)**: the MERGED gate refuses while any
+> artifact still contains an unchecked `- [ ]` (`guides/pipeline.md`
+> "Follow-up policy"). Tick what you verified; **delete** every checkbox and
+> section the Review Kind makes inapplicable — never leave them unchecked. A
+> completed review artifact ends with zero unchecked boxes.
+
 ## Summary
 
 [Brief overview of the PR and overall assessment]
@@ -27,9 +33,19 @@
 
 ## Docs Review Checklist (reviewKind: docs / mixed)
 
-Required in full for `reviewKind: docs` and `reviewKind: mixed`; not applied
-for `reviewKind: code`. For a docs review, the code-oriented sections below
-(code quality, testing, security, performance) do not apply.
+- Required in full for `reviewKind: docs` and `reviewKind: mixed`.
+- For `reviewKind: docs`, **delete** the code-oriented checkbox content of
+  this template instead of leaving it unchecked: the Detailed Review
+  categories Code Quality / Testing / Security / Performance (keep
+  Documentation and Architecture & Design if useful), the Checklist
+  Summary's code items ("All tests passing", "Adequate test coverage",
+  "No security vulnerabilities", "Error handling", "No major refactoring",
+  performance items), and the Testing rows under Task Completion Assessment
+  if the task defines none. Keep: Summary, the task's Objectives and
+  Acceptance Criteria, this checklist, Positive Feedback, Decision,
+  Next Steps.
+- For `reviewKind: code`, **delete this section** (including the checkboxes
+  below) and complete the code checklist instead.
 
 - [ ] **Accuracy vs implemented behavior** — every behavioral claim matches what the implemented code actually does (verified against the diff, not the plan's intent)
 - [ ] **Internal consistency** — the changed docs agree with themselves and with the sibling docs they reference
@@ -199,6 +215,10 @@ for `reviewKind: code`. For a docs review, the code-oriented sections below
 ---
 
 ## Checklist Summary
+
+(Delete items the Review Kind makes inapplicable — see the checkbox rule at
+the top; a docs review deletes the code items rather than leaving them
+unchecked.)
 
 ### Must Have (Before Approval)
 - [ ] All task objectives complete

@@ -102,7 +102,13 @@ Test and document results for each applicable category:
 6. **Exploratory testing** — go beyond scripted tests, document unexpected behaviors
 
 ### Phase 5: Documentation & Performance
-Verify documentation exists and is accurate. If performance requirements are specified in the task, test against them and document results.
+Docs verification is **not** QA's surface: user-facing docs accuracy was
+checked at the review gate — the mixed review carries the full docs checklist
+under `qa: code-only` — and docs findings route to the tech_writer
+(`guides/pipeline.md` follow-up policy). QA verifies only the code-adjacent
+docs of its portion (docstrings/comments on changed code). If performance
+requirements are specified in the task, test against them and document
+results.
 
 ## QA Report
 

@@ -26,10 +26,15 @@ tracker registry updates at lock/merge time).
   your `agentId`, and `implementedBy` set when you are the primary implementer
 
 ## Writes
-Enforced by the role-guard write-path classes (`guides/pipeline.md`,
-`HOST_CONTRACT.md` path-class map):
+Enforced by the role-guard write-path classes. The path-class map these
+classes read is **host-declared** (a `HOST_CONTRACT.md` requirement, declared
+in the host's root instructions) — `guides/pipeline.md` carries the staffing
+matrix derived from the map, not the map itself.
 
-- DOCS paths (`Docs/**`, README, root `*.md`), `Tasks/**`, `.task-locks/**`
+- DOCS paths — the prose class: `Docs/**`, README, root `*.md`, specs and
+  development plans, `.agents/rules/**`, and the framework's own prose
+  (`IskInFlow/**` except `scripts/**`); the host map defines the exact set
+- `Tasks/**`, `.task-locks/**`
 
 ## Non-negotiables
 - **The tech writer must not mark a task as COMPLETED.**

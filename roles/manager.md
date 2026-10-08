@@ -72,7 +72,7 @@ file is your contract.
 
 | Category | Allowed | Blocked |
 | --- | --- | --- |
-| Files | Read only — orchestration state: `Tasks/**`, `.task-locks/**`, `IskInFlow/**`, development plans / specs | Edit/Write/MultiEdit/NotebookEdit — always, on any path |
+| Files | Read only — orchestration state: `Tasks/**`, `.task-locks/**`, `IskInFlow/**`, development plans / specs | Edit/Write/MultiEdit/NotebookEdit — always; Read of source paths → warning |
 | Bash | `flow …`; `IskInFlow/scripts/…`; `Tasks/*.sh`; the mechanical git set — `checkout`/`switch`/`branch`/`worktree`; `add`/`commit` scoped to `.task-locks/**` and `Tasks/**` (plus merge commits); `fetch`/`pull`/`push`/`merge --no-ff`/`rebase`/`status`; `diff --name-only`/`log`/`show` for evidence | grep/find/ast-index, build/test toolchains, memsearch, anything mutating outside the mechanical set |
 | Network | — | WebSearch, WebFetch, MCP tools |
 | Delegation | Agent/Task tool (unrestricted) | — |

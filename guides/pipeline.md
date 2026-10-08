@@ -50,7 +50,8 @@ surface:
 Mixed-task ordering is mandatory: **docs are written after code is final**,
 describing implemented reality rather than intent. `implementedBy` names the
 primary implementer (the coder for `MIXED`); additional implementer rounds
-are recorded via history entries with their `agentId`.
+are recorded via history entries with their `agentId` and in
+`roles.actual.implementers`.
 
 **Predicted vs verified.** Staffing is decided twice, symmetric to how risk
 classes are recorded: **predicted** from the task's declared scope, filled
@@ -120,8 +121,9 @@ required artifacts.
 - **Lock + plan**: Manager acquires the lock and records predicted staffing
   (`flow new --surface`; lock-first, pushed to `main` before any
   implementation — see `git_and_workflow_operations.md` Part 5).
-- **Implementation**: per the staffing matrix — coder (TDD; `roles/coder.md`),
-  then tech_writer for `DOCS`/`MIXED` surfaces documenting the final behavior
+- **Implementation**: per the staffing matrix — the coder leads `CODE` and
+  `MIXED` (TDD; `roles/coder.md`); the tech_writer implements `DOCS` and
+  documents the final behavior after the coder in `MIXED`
   (`roles/tech_writer.md`).
 - **Review**: Code Reviewer for the code surface, docs review for the docs
   surface — **never the implementation context** (`roles/code_reviewer.md`).
