@@ -292,6 +292,10 @@ run_flow --root "$R" new s-bad --agent mgr --surface CODE --implementers wizard
 assert_refused "unknown --implementers role refused"
 assert_contains "  refusal names the valid roles" "$ERR" "wizard"
 
+run_flow --root "$R" new s-imp-nosurf --agent mgr --implementers coder
+assert_refused "--implementers without --surface refuses (round 1, Suggestion 2)"
+assert_contains "  refusal explains the requirement" "$ERR" "--implementers requires --surface"
+
 # Legacy shape: without --surface the new keys are absent entirely.
 run_flow --root "$R" new s-legacy --agent mgr
 assert_json "legacy new has no changeSurface key" "$R/.task-locks/s-legacy.lock.json" \
@@ -319,6 +323,8 @@ assert_json "  history classification surface" "$LK" 'lock["history"][-1]["class
 assert_json "  history docs path count" "$LK" 'lock["history"][-1]["classification"]["docsPaths"]' '1'
 assert_json "  history code path count" "$LK" 'lock["history"][-1]["classification"]["codePaths"]' '0'
 assert_json "  history neutral path count" "$LK" 'lock["history"][-1]["classification"]["neutralPaths"]' '0'
+assert_json "  docsScope recorded in classification" "$LK" \
+  'lock["history"][-1]["classification"]["docsScope"]' '"standard"'
 assert_json "  no narrowing" "$LK" 'lock["history"][-1]["classification"]["narrowing"]' 'false'
 assert_json "  no waiver" "$LK" 'lock["history"][-1]["classification"]["forced"]' 'false'
 assert_json "  workStage unchanged (checkpoint entry)" "$LK" \
@@ -403,6 +409,8 @@ LK="$CR/.task-locks/9108.lock.json"
 run_flow classify "$LK" --surface DOCS --class STANDARD --docs-scope tracker-only --agent cls
 assert_ok "tracker-only accepted for an all-Tasks/ DOCS diff"
 assert_json "  docsScope persists in roles.actual" "$LK" 'lock["roles"]["actual"]["docsScope"]' '"tracker-only"'
+assert_json "  docsScope recorded in classification" "$LK" \
+  'lock["history"][-1]["classification"]["docsScope"]' '"tracker-only"'
 
 # tracker-only refused when a DOCS path lies outside Tasks/.
 git_branch "$CR" feat-tasks-plus
@@ -484,6 +492,18 @@ pycase "derive: empty diff -> NONE" 'm.derive_surface([])["surface"]' '"NONE"'
 pycase "derive: docs+code -> MIXED" 'm.derive_surface(["Docs/a.md", "src/a.py"])["surface"]' '"MIXED"'
 pycase "derive: code+skills -> CODE" 'm.derive_surface(["src/a.py", ".agents/skills/x/SKILL.md"])["surface"]' '"CODE"'
 
+# Review-kind marker anchoring (review round 1, Finding 1): the marker must
+# sit at the start of a line; mid-line prose mentions of another kind's token
+# must not satisfy the check.
+pycase "marker: header line matches code" 'm._review_kind_marker("**Review Kind**: code — verified", "code")' 'true'
+pycase "marker: blockquote header matches docs" 'm._review_kind_marker("> **Review Kind**: docs", "docs")' 'true'
+pycase "marker: bullet reviewKind matches mixed" 'm._review_kind_marker("- reviewKind: mixed", "mixed")' 'true'
+pycase "marker: bare header line matches docs" 'm._review_kind_marker("reviewKind: docs", "docs")' 'true'
+pycase "marker: mid-line prose mention does NOT match" 'm._review_kind_marker("does not affect `reviewKind: code` here", "code")' 'false'
+pycase "marker: wrong-kind header not rescued by expected-kind prose (code)" 'm._review_kind_marker("**Review Kind**: docs — about `reviewKind: code`", "code")' 'false'
+pycase "marker: wrong-kind header not rescued by expected-kind prose (docs)" 'm._review_kind_marker("**Review Kind**: code — see `reviewKind: docs` below", "docs")' 'false'
+pycase "marker: wrong-kind header not rescued by expected-kind prose (mixed)" 'm._review_kind_marker("**Review Kind**: docs — vs `reviewKind: mixed`", "mixed")' 'false'
+
 # Host override map is honored.
 OV="$TMP/override"
 mkdir -p "$OV/.task-locks"
@@ -504,6 +524,41 @@ pycase_ov "override: vendor/** neutral" 'm.path_class("vendor/lib.rs", classes)'
 pycase_ov "override: notes/** docs" 'm.path_class("notes/x.md", classes)' '"docs"'
 pycase_ov "override: Docs/** falls to code (host map replaces built-in)" 'm.path_class("Docs/x.md", classes)' '"code"'
 
+# Malformed overrides warn on stderr and fall back to the built-ins (round 1,
+# Suggestion 3).
+override_load_err() { # override_load_err <dir> -> stderr of load_path_classes
+  PYTHONDONTWRITEBYTECODE=1 python3 -c '
+import sys
+src = open(sys.argv[1], encoding="utf-8").read()
+mod = type(sys)("flowmod")
+exec(compile(src, sys.argv[1], "exec"), mod.__dict__)
+mod.load_path_classes(sys.argv[2])
+' "$FLOW" "$1" 2>&1 1>/dev/null
+}
+override_load_builtin() { # override_load_builtin <dir> -> true when built-ins used
+  PYTHONDONTWRITEBYTECODE=1 python3 -c '
+import json, sys
+src = open(sys.argv[1], encoding="utf-8").read()
+mod = type(sys)("flowmod")
+exec(compile(src, sys.argv[1], "exec"), mod.__dict__)
+print(json.dumps(mod.load_path_classes(sys.argv[2]) == mod.DEFAULT_PATH_CLASSES))
+' "$FLOW" "$1"
+}
+
+OVBAD="$TMP/broken-override"
+mkdir -p "$OVBAD/.task-locks"
+printf '{not json' >"$OVBAD/.task-locks/path-classes.json"
+assert_contains "unparseable path-classes.json warns on stderr" \
+  "$(override_load_err "$OVBAD")" "ignoring malformed"
+assert_eq "  built-in classes still used" "true" "$(override_load_builtin "$OVBAD")"
+
+OVEMPTY="$TMP/empty-override"
+mkdir -p "$OVEMPTY/.task-locks"
+printf '{"neutral": "not-a-list"}' >"$OVEMPTY/.task-locks/path-classes.json"
+assert_contains "list-less path-classes.json warns on stderr" \
+  "$(override_load_err "$OVEMPTY")" "no path-class lists"
+assert_eq "  built-in classes still used" "true" "$(override_load_builtin "$OVEMPTY")"
+
 # ---------------------------------------------------------------------------
 section "6. validate — surface-aware rules, waivers, legacy unchanged"
 # ---------------------------------------------------------------------------
@@ -516,11 +571,22 @@ mkart() { # mkart <task> <review-kind-marker>
   mkdir -p "$ART/$1"
   printf '# Code Review: Task %s\n\n**Review Kind**: %s — verified\n' "$1" "$2" >"$ART/$1/review.md"
 }
+mkart_prose() { # mkart_prose <task> <header-kind> — marker line plus mid-line
+  # prose that mentions ALL three kind tokens (the 0041-style false accept).
+  mkdir -p "$ART/$1"
+  {
+    printf '# Code Review: Task %s\n\n' "$1"
+    printf '**Review Kind**: %s — verified against the diff surface\n\n' "$2"
+    printf 'Suggestions: none; this does not affect `reviewKind: code`, `reviewKind: docs`, or `reviewKind: mixed` behavior elsewhere.\n'
+  } >"$ART/$1/review.md"
+}
 mkqa() { # mkqa <task>
   mkdir -p "$ART/$1"
   printf '# QA Report\n' >"$ART/$1/qa-report.md"
 }
 act_code='{"surface": "CODE", "implementers": ["coder"], "reviewKind": "code", "qa": "full", "docsScope": null}'
+act_docs_std='{"surface": "DOCS", "implementers": ["tech_writer"], "reviewKind": "docs", "qa": "skipped", "docsScope": "standard"}'
+act_mixed='{"surface": "MIXED", "implementers": ["coder", "tech_writer"], "reviewKind": "mixed", "qa": "code-only", "docsScope": null}'
 
 # CODE complete: review (kind code) + qa-report -> pass.
 synth_lock "$VLOCK/v-code.lock.json" \
@@ -547,6 +613,55 @@ mkqa v-wrong
 run_flow validate "$VLOCK/v-wrong.lock.json"
 assert_refused "CODE lock with a docs reviewKind marker errors"
 assert_contains "  names the marker problem" "$OUT" "reviewKind"
+
+# Round-1 Finding 1 regression: a wrong-kind artifact whose PROSE mentions the
+# expected kind's token must still fail — for all three kinds — while the
+# right-kind artifact with prose mentions of the others passes.
+synth_lock "$VLOCK/v-prose-code.lock.json" \
+  "{\"taskId\": \"v-prose-code\", \"changeSurface\": \"CODE\", \"roles\": {\"predicted\": null, \"actual\": $act_code}}"
+mkart_prose v-prose-code docs
+mkqa v-prose-code
+run_flow validate "$VLOCK/v-prose-code.lock.json"
+assert_refused "CODE: docs artifact mentioning \`reviewKind: code\` in prose errors"
+assert_contains "  names the kind mismatch" "$OUT" "reviewKind"
+
+synth_lock "$VLOCK/v-prose-code-ok.lock.json" \
+  "{\"taskId\": \"v-prose-code-ok\", \"changeSurface\": \"CODE\", \"roles\": {\"predicted\": null, \"actual\": $act_code}}"
+mkart_prose v-prose-code-ok code
+mkqa v-prose-code-ok
+run_flow validate "$VLOCK/v-prose-code-ok.lock.json"
+assert_ok "CODE: code artifact mentioning other kinds in prose passes"
+assert_not_contains "  no errors" "$OUT" "ERROR"
+
+synth_lock "$VLOCK/v-prose-docs.lock.json" \
+  "{\"taskId\": \"v-prose-docs\", \"changeSurface\": \"DOCS\", \"roles\": {\"predicted\": null, \"actual\": $act_docs_std}}"
+mkart_prose v-prose-docs code
+run_flow validate "$VLOCK/v-prose-docs.lock.json"
+assert_refused "DOCS: code artifact mentioning \`reviewKind: docs\` in prose errors"
+assert_contains "  names the kind mismatch" "$OUT" "reviewKind"
+
+synth_lock "$VLOCK/v-prose-docs-ok.lock.json" \
+  "{\"taskId\": \"v-prose-docs-ok\", \"changeSurface\": \"DOCS\", \"roles\": {\"predicted\": null, \"actual\": $act_docs_std}}"
+mkart_prose v-prose-docs-ok docs
+run_flow validate "$VLOCK/v-prose-docs-ok.lock.json"
+assert_ok "DOCS: docs artifact mentioning other kinds in prose passes"
+assert_not_contains "  no errors" "$OUT" "ERROR"
+
+synth_lock "$VLOCK/v-prose-mixed.lock.json" \
+  "{\"taskId\": \"v-prose-mixed\", \"changeSurface\": \"MIXED\", \"roles\": {\"predicted\": null, \"actual\": $act_mixed}}"
+mkart_prose v-prose-mixed code
+mkqa v-prose-mixed
+run_flow validate "$VLOCK/v-prose-mixed.lock.json"
+assert_refused "MIXED: code artifact mentioning \`reviewKind: mixed\` in prose errors"
+assert_contains "  names the kind mismatch" "$OUT" "reviewKind"
+
+synth_lock "$VLOCK/v-prose-mixed-ok.lock.json" \
+  "{\"taskId\": \"v-prose-mixed-ok\", \"changeSurface\": \"MIXED\", \"roles\": {\"predicted\": null, \"actual\": $act_mixed}}"
+mkart_prose v-prose-mixed-ok mixed
+mkqa v-prose-mixed-ok
+run_flow validate "$VLOCK/v-prose-mixed-ok.lock.json"
+assert_ok "MIXED: mixed artifact mentioning other kinds in prose passes"
+assert_not_contains "  no errors" "$OUT" "ERROR"
 
 # CODE without qa-report.md -> error.
 synth_lock "$VLOCK/v-noqa.lock.json" \
@@ -678,6 +793,18 @@ if [ -z "$(git -C "$AR" status --porcelain)" ]; then ok "  tree clean after arch
 
 run_flow archive "$AR/.task-locks/completed/9200.lock.json"
 assert_refused "re-archiving an already-archived lock refuses"
+
+# Archive honors the global --root for relative lock paths (round 1, Suggestion 4).
+AR2="$(make_repo)"
+run_flow --root "$AR2" new 9202 --agent mgr
+git -C "$AR2" add .task-locks/9202.lock.json
+git -C "$AR2" commit -qm "lock 9202"
+mod_lock "$AR2/.task-locks/9202.lock.json" \
+  'lock["status"] = "COMPLETED"; lock["workStage"] = "MERGED"; lock["completedAt"] = "2026-10-09T12:00:00+00:00"'
+run_flow --root "$AR2" archive .task-locks/9202.lock.json
+assert_ok "archive honors the global --root for relative lock paths"
+if [ -f "$AR2/.task-locks/completed/9202.lock.json" ]; then ok "  lock moved under --root"; else fail "  lock moved under --root (missing)"; fi
+if [ ! -f "$AR2/.task-locks/9202.lock.json" ]; then ok "  old path gone"; else fail "  old path gone (still present)"; fi
 
 NG="$TMP/nogit"
 run_flow --root "$NG" new 9201 --agent mgr
