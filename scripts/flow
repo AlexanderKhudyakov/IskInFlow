@@ -7,8 +7,10 @@ workflow's invariants are enforced by tooling instead of prose compliance.
 Subcommands:
   validate    Check lock files against the schema; exit 1 on errors.
   new         Create a task lock (status ACTIVE, stage IMPLEMENTATION_STARTED).
-  classify    Derive the change surface from the branch diff; set changeSurface
-              and roles.actual with diff evidence in history.
+  classify    Derive the change surface from the branch diff (default: the
+              lock's own repo; --repo overrides for nested implementation
+              repos); set changeSurface and roles.actual with diff evidence
+              in history.
   transition  Move a lock to a new gate stage, validating legality, appending history.
   check-push  Pre-push gate for ai/* branches (lock present, stage known, artifacts exist).
   role        Show/set/log the active role marker (<git-common-dir>/isk-role).
@@ -217,14 +219,18 @@ def load_lock(path):
         return json.load(fh)
 
 
-def repo_root_for(path):
-    """Git toplevel of the repo containing `path`, or None outside a repo."""
+def _git_toplevel(directory):
+    """Git toplevel of `directory`, or None outside a repository."""
     proc = subprocess.run(
-        ["git", "-C", os.path.dirname(os.path.abspath(path)),
-         "rev-parse", "--show-toplevel"],
+        ["git", "-C", os.path.abspath(directory), "rev-parse", "--show-toplevel"],
         capture_output=True, text=True,
     )
     return proc.stdout.strip() if proc.returncode == 0 else None
+
+
+def repo_root_for(path):
+    """Git toplevel of the repo containing `path`, or None outside a repo."""
+    return _git_toplevel(os.path.dirname(os.path.abspath(path)))
 
 
 def _glob_regex(pattern):
@@ -770,12 +776,31 @@ def cmd_classify(args):
         print("flow classify: lock has no 'branch'; cannot derive the surface "
               "from git diff main...<branch>", file=sys.stderr)
         return 1
-    repo = repo_root_for(path)
-    if not repo:
-        print(f"flow classify: {os.path.dirname(path) or '.'} is not inside a "
-              "git repository; the surface is derived from the branch diff",
-              file=sys.stderr)
-        return 1
+    # The derivation diff runs in the --repo override when given (e.g. a
+    # nested implementation repo hosting the branch while the lock lives in
+    # the host repo); default is the repo containing the lock.
+    if args.repo:
+        repo = _git_toplevel(args.repo)
+        if not repo:
+            print(f"flow classify: --repo {args.repo} is not inside a git "
+                  "repository; the surface is derived from a git diff there",
+                  file=sys.stderr)
+            return 1
+        proc = subprocess.run(
+            ["git", "-C", repo, "rev-parse", "--verify", "--quiet", branch],
+            capture_output=True, text=True,
+        )
+        if proc.returncode != 0:
+            print(f"flow classify: branch {branch!r} not found in diff repo "
+                  f"{repo}", file=sys.stderr)
+            return 1
+    else:
+        repo = repo_root_for(path)
+        if not repo:
+            print(f"flow classify: {os.path.dirname(path) or '.'} is not inside a "
+                  "git repository; the surface is derived from the branch diff",
+                  file=sys.stderr)
+            return 1
     proc = subprocess.run(
         ["git", "-C", repo, "diff", "--name-only", "-z", f"main...{branch}"],
         capture_output=True, text=True,
@@ -844,6 +869,7 @@ def cmd_classify(args):
     # Checkpoint-style history entry: evidence without moving workStage.
     now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     stage = lock.get("workStage")
+    diff_source = "--repo override" if args.repo else "lock repo (default)"
     lock.setdefault("history", []).append({
         "timestamp": now,
         "fromStage": stage,
@@ -851,10 +877,11 @@ def cmd_classify(args):
         "agentId": args.agent,
         "reason": (f"classified: {derived} / {args.risk_class} — "
                    f"code={evidence['codePaths']} docs={evidence['docsPaths']} "
-                   f"neutral={evidence['neutralPaths']}"),
+                   f"neutral={evidence['neutralPaths']} — diff: {diff_source}"),
         "classification": {
             "surface": derived,
             "riskClass": args.risk_class,
+            "diffRepo": repo,
             "codePaths": evidence["codePaths"],
             "docsPaths": evidence["docsPaths"],
             "neutralPaths": evidence["neutralPaths"],
@@ -1221,6 +1248,10 @@ def main(argv=None):
                    help="risk class (depth only)")
     p.add_argument("--docs-scope", choices=("tracker-only",),
                    help="assert the Q1 carve-out: DOCS diff entirely under Tasks/**")
+    p.add_argument("--repo",
+                   help="derive the diff from another repository (e.g. a nested "
+                        "implementation repo hosting the branch while the lock "
+                        "lives in the host repo); default: the lock's own repo")
     p.add_argument("--agent", required=True)
     p.add_argument("--force", action="store_true",
                    help="record a waiver for a predicted-surface mismatch "

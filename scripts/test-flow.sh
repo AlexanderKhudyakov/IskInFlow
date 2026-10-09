@@ -329,6 +329,8 @@ assert_json "  workStage value unchanged" "$LK" 'lock["workStage"]' '"IMPLEMENTA
 run_flow classify "$LK" --surface DOCS --class CRITICAL --agent cls2
 assert_ok "re-classify allowed"
 assert_json "  fresh riskClass recorded" "$LK" 'lock["history"][-1]["classification"]["riskClass"]' '"CRITICAL"'
+assert_json "  reason mentions the default diff repo" "$LK" \
+  '"default" in lock["history"][-1]["reason"]' 'true'
 assert_json "  history grew by one" "$LK" 'len(lock["history"])' '3'
 
 # Assertion refusal: --surface disagrees with the diff.
@@ -415,6 +417,40 @@ run_flow --root "$CR" new 9110 --agent mgr --branch feature
 mod_lock "$CR/.task-locks/9110.lock.json" 'lock.pop("branch")'
 run_flow classify "$CR/.task-locks/9110.lock.json" --surface DOCS --class STANDARD --agent cls
 assert_refused "classify without lock.branch refuses"
+
+# Cross-repo classify: lock in a host repo, substantive branch in an impl repo.
+HR="$(make_repo)"
+IR="$(make_repo)"
+git_branch "$IR" feature
+feature_commit "$IR" "src/app.py" "print(1)"
+run_flow --root "$HR" new 9111 --agent mgr --branch feature --surface CODE
+LK="$HR/.task-locks/9111.lock.json"
+run_flow classify "$LK" --surface CODE --class STANDARD --agent cls
+assert_refused "host-repo derivation alone refuses (branch lives in the impl repo)"
+run_flow classify "$LK" --surface CODE --class STANDARD --agent cls --repo "$IR"
+assert_ok "cross-repo classify derives from the --repo impl diff"
+assert_json "  surface from the impl diff" "$LK" 'lock["changeSurface"]' '"CODE"'
+assert_json "  impl code path counted" "$LK" 'lock["history"][-1]["classification"]["codePaths"]' '1'
+assert_json "  docs paths empty" "$LK" 'lock["history"][-1]["classification"]["docsPaths"]' '0'
+assert_json "  diffRepo records the impl repo toplevel" "$LK" \
+  'lock["history"][-1]["classification"]["diffRepo"] == __import__("os").path.realpath("'"$IR"'")' 'true'
+assert_json "  reason names the --repo override" "$LK" \
+  '"--repo override" in lock["history"][-1]["reason"]' 'true'
+assert_json "  workStage unchanged" "$LK" 'lock["workStage"]' '"IMPLEMENTATION_STARTED"'
+
+# --repo refusal: path is not a git repository.
+run_flow --root "$HR" new 9112 --agent mgr --branch feature --surface CODE
+NR2="$TMP/nonrepo-classify"
+mkdir -p "$NR2"
+run_flow classify "$HR/.task-locks/9112.lock.json" --surface CODE --class STANDARD --agent cls --repo "$NR2"
+assert_refused "--repo path outside a git repository refuses"
+assert_contains "  refusal names the problem" "$ERR" "not inside a git repository"
+
+# --repo refusal: branch unknown in the given repo.
+run_flow --root "$HR" new 9113 --agent mgr --branch no-such-branch --surface CODE
+run_flow classify "$HR/.task-locks/9113.lock.json" --surface CODE --class STANDARD --agent cls --repo "$IR"
+assert_refused "unknown branch in the --repo diff repo refuses"
+assert_contains "  refusal names the branch and repo" "$ERR" "not found in"
 
 # ---------------------------------------------------------------------------
 section "5. Path-class pattern semantics (unit)"
