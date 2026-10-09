@@ -7,9 +7,23 @@ workflow's invariants are enforced by tooling instead of prose compliance.
 Subcommands:
   validate    Check lock files against the schema; exit 1 on errors.
   new         Create a task lock (status ACTIVE, stage IMPLEMENTATION_STARTED).
+  classify    Derive the change surface from the branch diff (default: the
+              lock's own repo; --repo overrides for nested implementation
+              repos); set changeSurface and roles.actual with diff evidence
+              in history.
   transition  Move a lock to a new gate stage, validating legality, appending history.
   check-push  Pre-push gate for ai/* branches (lock present, stage known, artifacts exist).
+  role        Show/set/log the active role marker (<git-common-dir>/isk-role).
+  archive     Move a MERGED+COMPLETED lock to .task-locks/completed/ with a
+              scoped archival commit.
   metrics     Lead time / rework statistics from completed locks.
+
+v2 surface model (guides/pipeline.md "Change surfaces and staffing"): a lock
+carries `changeSurface` (CODE | DOCS | MIXED | NONE, set only by `flow
+classify`) and `roles.predicted`/`roles.actual` staffing objects. All v2
+fields are additive — locks without them validate and transition with the
+legacy semantics. `flow new` no longer stamps `implementedBy`; the primary
+implementer sets it at the IMPLEMENTATION_COMPLETE transition.
 
 Requires only the Python 3 standard library. Run from anywhere inside the host
 repository; `.task-locks/` is resolved from the repo root (or --root).
@@ -27,6 +41,7 @@ import glob
 import json
 import os
 import re
+import shutil
 import statistics
 import subprocess
 import sys
@@ -62,6 +77,57 @@ LEGACY_ALIASES = {
     "IMPLEMENTATION_IN_PROGRESS": "IMPLEMENTATION_STARTED",
 }
 
+# ---------------------------------------------------------------------------
+# Change surfaces and roles (v2)
+# ---------------------------------------------------------------------------
+
+# Diff surfaces (spec §3.1): CODE (executable paths only), DOCS (prose only),
+# MIXED (both), NONE (neither — e.g. skills-only). `changeSurface` is set on a
+# lock only by `flow classify`; `flow new --surface` records the prediction
+# under roles.predicted and leaves changeSurface null.
+SURFACES = ("CODE", "DOCS", "MIXED", "NONE")
+
+ROLES = (
+    "manager", "planner", "coder", "tech_writer",
+    "researcher", "code_reviewer", "qa_engineer", "reflector",
+)
+
+# Surface-derived staffing defaults (guides/pipeline.md staffing matrix).
+SURFACE_STAFFING = {
+    "CODE": {"implementers": ["coder"], "reviewKind": "code", "qa": "full",
+             "docsScope": None},
+    "DOCS": {"implementers": ["tech_writer"], "reviewKind": "docs", "qa": "skipped",
+             "docsScope": "standard"},
+    "MIXED": {"implementers": ["coder", "tech_writer"], "reviewKind": "mixed",
+              "qa": "code-only", "docsScope": None},
+    "NONE": {"implementers": [], "reviewKind": None, "qa": "skipped",
+             "docsScope": None},
+}
+
+# Stages at which review/QA artifacts must exist (same set check-push uses).
+NEEDS_ARTIFACT_STAGES = {"QA_PASSED", "QA_CONDITIONAL_PASS",
+                         "REFLECTION_COMPLETE", "MERGED"}
+
+# Built-in path-class map (spec §4.5 initial map; works in the host repo and
+# the framework repo). A host overrides it with
+# .task-locks/path-classes.json: {"neutral": [...], "skills": [...],
+# "docs": [...]} — same semantics. Patterns are glob-style where `**` spans
+# path segments and `*` stays within one; a `!`-prefixed pattern excludes a
+# path from its class (first match wins per class list). Unmatched paths
+# default to CODE (fail closed, spec §4.5).
+DEFAULT_PATH_CLASSES = {
+    "neutral": [".task-locks/**", ".memsearch/**"],
+    "skills": [".agents/skills/**"],
+    "docs": [
+        "Docs/**", "Tasks/**", ".agents/rules/**", "*.md",
+        "roles/**", "guides/**", "commands/**", "templates/**",
+        "workflow/**", "skills/**",
+        "!IskInFlow/scripts/**", "IskInFlow/**",
+    ],
+}
+
+_GLOB_CACHE = {}
+
 # Legal GATE -> GATE transitions. CHECKPOINT stages are allowed between any
 # two gates and are not part of this graph.
 TRANSITIONS = {
@@ -70,7 +136,9 @@ TRANSITIONS = {
     "AWAITING_REVIEW": {"CODE_REVIEW_REQUESTED", "CODE_REVIEW_APPROVED", "CODE_REVIEW_CHANGES_REQUESTED"},
     "CODE_REVIEW_REQUESTED": {"CODE_REVIEW_APPROVED", "CODE_REVIEW_CHANGES_REQUESTED"},
     "CODE_REVIEW_CHANGES_REQUESTED": {"CODE_REVIEW_REQUESTED", "AWAITING_REVIEW", "CODE_REVIEW_APPROVED"},
-    "CODE_REVIEW_APPROVED": {"AWAITING_QA", "QA_REQUESTED"},
+    # QA_SKIPPED edge is unconditional (Q1: docs-surface review skip); the
+    # compensating surface check in cmd_transition refuses it for CODE/MIXED.
+    "CODE_REVIEW_APPROVED": {"AWAITING_QA", "QA_REQUESTED", "QA_SKIPPED"},
     "CODE_REVIEW_SKIPPED": {"QA_SKIPPED"},
     "AWAITING_QA": {"QA_REQUESTED", "QA_PASSED", "QA_FAILED"},
     "QA_REQUESTED": {"QA_PASSED", "QA_FAILED", "QA_CONDITIONAL_PASS"},
@@ -151,6 +219,278 @@ def load_lock(path):
         return json.load(fh)
 
 
+def _git_toplevel(directory):
+    """Git toplevel of `directory`, or None outside a repository."""
+    proc = subprocess.run(
+        ["git", "-C", os.path.abspath(directory), "rev-parse", "--show-toplevel"],
+        capture_output=True, text=True,
+    )
+    return proc.stdout.strip() if proc.returncode == 0 else None
+
+
+def repo_root_for(path):
+    """Git toplevel of the repo containing `path`, or None outside a repo."""
+    return _git_toplevel(os.path.dirname(os.path.abspath(path)))
+
+
+def _glob_regex(pattern):
+    """Compile a glob path pattern: `**` spans segments, `*` stays within one."""
+    rx = _GLOB_CACHE.get(pattern)
+    if rx is None:
+        parts = []
+        i = 0
+        while i < len(pattern):
+            if pattern[i] == "*":
+                if pattern[i + 1:i + 2] == "*":
+                    parts.append(".*")
+                    i += 2
+                else:
+                    parts.append("[^/]*")
+                    i += 1
+            else:
+                parts.append(re.escape(pattern[i]))
+                i += 1
+        rx = re.compile("".join(parts) + r"\Z")
+        _GLOB_CACHE[pattern] = rx
+    return rx
+
+
+def load_path_classes(repo_root):
+    """Path classes for `repo_root`: the host override when present, else
+    the built-in map. A malformed override warns on stderr and falls back
+    to the built-ins — silent config degradation here would misclassify."""
+    override = os.path.join(repo_root, ".task-locks", "path-classes.json")
+    if os.path.isfile(override):
+        try:
+            with open(override, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (ValueError, OSError) as exc:
+            print(f"flow classify: ignoring malformed {override}: {exc}; "
+                  "using built-in path classes", file=sys.stderr)
+            return DEFAULT_PATH_CLASSES
+        if not isinstance(data, dict):
+            # JSON-valid but not an object (`[]`, `"x"`, `5`, `null`) — same
+            # warn-and-fallback path instead of an AttributeError traceback.
+            print(f"flow classify: ignoring {override}: not a JSON object; "
+                  "using built-in path classes", file=sys.stderr)
+            return DEFAULT_PATH_CLASSES
+        classes = {k: list(v) for k, v in data.items() if isinstance(v, list)}
+        if classes:
+            return classes
+        print(f"flow classify: ignoring {override}: no path-class lists; "
+              "using built-in path classes", file=sys.stderr)
+    return DEFAULT_PATH_CLASSES
+
+
+def path_class(path, classes=None):
+    """Classify one repo-relative path: a class name from the map, or 'code'.
+
+    Patterns are evaluated in map order, first match wins per class list; a
+    `!`-prefixed pattern excludes the path from its class (continue with the
+    next class). Unmatched paths default to CODE (fail closed).
+    """
+    if classes is None:
+        classes = DEFAULT_PATH_CLASSES
+    for name, patterns in classes.items():
+        for pattern in patterns:
+            negated = pattern.startswith("!")
+            rx = _glob_regex(pattern[1:] if negated else pattern)
+            if rx.match(path):
+                if negated:
+                    break  # excluded from this class; try the next one
+                return name
+    return "code"
+
+
+def derive_surface(paths, classes=None):
+    """Diff surface per spec §3.1: a CODE flag for CODE-class paths, a DOCS
+    flag for DOCS-class paths; skills and neutral paths set neither flag, so
+    the four enum values are the four flag combinations. Returns the surface,
+    per-class counts, and sample paths for history evidence."""
+    code = docs = neutral = 0
+    samples = []
+    for path in paths:
+        klass = path_class(path, classes)
+        if klass == "code":
+            code += 1
+        elif klass == "docs":
+            docs += 1
+        else:  # 'skills' and 'neutral' are surface-neutral
+            neutral += 1
+        if len(samples) < 5:
+            samples.append(f"{path} ({klass})")
+    if code and docs:
+        surface = "MIXED"
+    elif code:
+        surface = "CODE"
+    elif docs:
+        surface = "DOCS"
+    else:
+        surface = "NONE"
+    return {
+        "surface": surface,
+        "codePaths": code,
+        "docsPaths": docs,
+        "neutralPaths": neutral,
+        "samplePaths": samples,
+    }
+
+
+def staffing_for(surface, implementers=None, docs_scope=None):
+    """A roles.predicted/actual object for `surface` (staffing matrix)."""
+    defaults = SURFACE_STAFFING[surface]
+    return {
+        "surface": surface,
+        "implementers": list(defaults["implementers"] if implementers is None
+                             else implementers),
+        "reviewKind": defaults["reviewKind"],
+        "qa": defaults["qa"],
+        "docsScope": defaults["docsScope"] if docs_scope is None else docs_scope,
+    }
+
+
+def effective_surface(lock):
+    """changeSurface when set, else roles.predicted.surface, else None."""
+    surface = lock.get("changeSurface")
+    if surface:
+        return surface
+    predicted = (lock.get("roles") or {}).get("predicted") or {}
+    return predicted.get("surface")
+
+
+def effective_docs_scope(lock):
+    """roles.actual.docsScope when actual is present, else predicted's."""
+    roles = lock.get("roles") or {}
+    actual = roles.get("actual") or {}
+    if actual:
+        return actual.get("docsScope")
+    predicted = roles.get("predicted") or {}
+    return predicted.get("docsScope")
+
+
+def _surface_transition_refusal(lock, target):
+    """Compensating transition refusals (spec §5); None when allowed.
+
+    Locks with neither changeSurface nor a predicted surface (pre-v2/legacy)
+    keep today's semantics — no refusal.
+    """
+    surface = effective_surface(lock)
+    if not surface:
+        return None
+    if target == "CODE_REVIEW_SKIPPED":
+        if surface in ("CODE", "MIXED"):
+            return (f"CODE_REVIEW_SKIPPED refused: change surface {surface} "
+                    "requires code review (guides/pipeline.md 'Change surfaces "
+                    "and staffing')")
+        if surface == "DOCS" and effective_docs_scope(lock) == "standard":
+            return ("CODE_REVIEW_SKIPPED refused: DOCS surface with docsScope "
+                    "'standard' requires docs review (only tracker-only DOCS "
+                    "and NONE may skip)")
+    if target == "QA_SKIPPED" and surface in ("CODE", "MIXED"):
+        return (f"QA_SKIPPED refused: change surface {surface} requires QA "
+                "(full for CODE, code-only for MIXED)")
+    return None
+
+
+def _check_staffing_shape(staffing, label, errors):
+    """Validate a roles.predicted/actual object against the v2 shape (§5)."""
+    if not isinstance(staffing, dict):
+        errors.append(f"{label} must be an object")
+        return
+    if staffing.get("surface") not in SURFACES:
+        errors.append(f"{label}.surface must be one of {'/'.join(SURFACES)}, "
+                      f"got {staffing.get('surface')!r}")
+    implementers = staffing.get("implementers")
+    if not isinstance(implementers, list) or any(r not in ROLES for r in implementers):
+        errors.append(f"{label}.implementers must be a list of role names "
+                      f"({'/'.join(ROLES)})")
+    if staffing.get("reviewKind") not in (None, "code", "docs", "mixed"):
+        errors.append(f"{label}.reviewKind must be code|docs|mixed|null, "
+                      f"got {staffing.get('reviewKind')!r}")
+    if staffing.get("qa") not in ("full", "code-only", "skipped"):
+        errors.append(f"{label}.qa must be full|code-only|skipped, "
+                      f"got {staffing.get('qa')!r}")
+    if staffing.get("docsScope") not in (None, "standard", "tracker-only"):
+        errors.append(f"{label}.docsScope must be standard|tracker-only|null, "
+                      f"got {staffing.get('docsScope')!r}")
+
+
+def _review_kind_marker(text, kind):
+    """True when `text` carries a review-kind marker for `kind`.
+
+    The template writes `**Review Kind**: <code|docs|mixed>` at the start of
+    a header line, so the pattern anchors there (tolerating blockquote/bullet
+    prefixes and case/spacing variants). Mid-line prose mentions of another
+    kind's token (e.g. a docs review discussing `reviewKind: code`) must not
+    satisfy the check.
+    """
+    return re.search(r"(?im)^[ \t>*-]*review\s*kind\b[^a-z]*" + kind + r"\b",
+                     text, re.IGNORECASE) is not None
+
+
+def _artifacts_dir(lock_path):
+    """The .task-locks/artifacts directory for a lock file's location
+    (handles both .task-locks/<name> and .task-locks/completed/<name>)."""
+    base = os.path.dirname(os.path.abspath(lock_path))
+    if os.path.basename(base) == "completed":
+        base = os.path.dirname(base)
+    return os.path.join(base, "artifacts")
+
+
+def _surface_artifact_findings(lock, lock_path, surface):
+    """Surface-aware artifact rules (spec §5), applied only at the
+    needs_artifacts stages. Returns finding strings; the caller downgrades
+    them to warnings under `validate --force` (waiver semantics)."""
+    task = str(lock.get("taskId") or "")
+    if not task:
+        return ["changeSurface set but taskId missing; cannot locate artifacts"]
+    stages = [str(entry_stage(h) or "") for h in lock.get("history", [])
+              if isinstance(h, dict)]
+    artifacts = _artifacts_dir(lock_path)
+    review_path = os.path.join(artifacts, task, "review.md")
+    qa_path = os.path.join(artifacts, task, "qa-report.md")
+    findings = []
+
+    def require_review(kind):
+        rel = f".task-locks/artifacts/{task}/review.md"
+        if not os.path.isfile(review_path):
+            findings.append(f"{task}: required artifact missing: {rel}")
+            return None
+        with open(review_path, "r", encoding="utf-8") as fh:
+            text = fh.read()
+        if not _review_kind_marker(text, kind):
+            findings.append(f"{task}: {rel} exists but carries no reviewKind "
+                            f"marker for {kind!r}")
+        return text
+
+    def require_qa():
+        rel = f".task-locks/artifacts/{task}/qa-report.md"
+        if not os.path.isfile(qa_path):
+            findings.append(f"{task}: required artifact missing: {rel}")
+
+    if surface in ("CODE", "MIXED"):
+        require_review("code" if surface == "CODE" else "mixed")
+        require_qa()
+        if any("QA_SKIPPED" in s for s in stages):
+            findings.append(f"{task}: surface {surface} with QA_SKIPPED in "
+                            "history (dual-enforced transition refusal)")
+    elif surface == "DOCS":
+        scope = effective_docs_scope(lock)
+        if scope == "tracker-only":
+            if not any("CODE_REVIEW_SKIPPED" in s for s in stages):
+                findings.append(f"{task}: tracker-only DOCS requires a "
+                                "CODE_REVIEW_SKIPPED stage entry in history "
+                                "as skip evidence")
+        else:
+            review_text = require_review("docs")
+            if review_text is None and any("CODE_REVIEW_SKIPPED" in s for s in stages):
+                findings.append(f"{task}: DOCS (docsScope {scope!r}) with "
+                                "CODE_REVIEW_SKIPPED in history and no "
+                                "review.md (dual-enforced transition refusal)")
+    # NONE: neither artifact is required.
+    return findings
+
+
 # ---------------------------------------------------------------------------
 # validate
 # ---------------------------------------------------------------------------
@@ -211,6 +551,35 @@ def cmd_validate(args):
             if field not in lock:
                 warnings.append(f"recommended field missing: {field}")
 
+        # v2 surface schema (additive: absent fields = legacy = no checks).
+        change_surface = lock.get("changeSurface")
+        if "changeSurface" in lock and change_surface is not None \
+                and change_surface not in SURFACES:
+            errors.append(f"changeSurface must be one of {'/'.join(SURFACES)} "
+                          f"or null, got {change_surface!r}")
+        roles = lock.get("roles")
+        if roles is not None:
+            if not isinstance(roles, dict):
+                errors.append("roles must be an object")
+            else:
+                for label in ("predicted", "actual"):
+                    if roles.get(label) is not None:
+                        _check_staffing_shape(roles[label], f"roles.{label}", errors)
+
+        # Surface-aware artifact rules: only classified (changeSurface set)
+        # locks, and only at the stages where artifacts must exist — in-flight
+        # locks are exempt. --force downgrades findings to warnings (waiver).
+        surface_findings = []
+        if change_surface:
+            if not (isinstance(roles, dict) and isinstance(roles.get("actual"), dict)):
+                warnings.append("changeSurface set but roles.actual missing")
+            if normalize_stage(stage) in NEEDS_ARTIFACT_STAGES:
+                surface_findings = _surface_artifact_findings(lock, path, change_surface)
+        if args.force:
+            warnings.extend(surface_findings)
+        else:
+            errors.extend(surface_findings)
+
         for w in warnings:
             print(f"{path}: WARN {w}")
         for e in errors:
@@ -232,6 +601,19 @@ def cmd_validate(args):
 # ---------------------------------------------------------------------------
 
 def cmd_new(args):
+    if args.implementers and not args.surface:
+        # Without --surface there is no roles.predicted to override; accepting
+        # the flag would silently discard a staffing decision.
+        print("flow new: --implementers requires --surface", file=sys.stderr)
+        return 1
+    implementers = None
+    if args.implementers:
+        implementers = [r.strip() for r in args.implementers.split(",") if r.strip()]
+        invalid = [r for r in implementers if r not in ROLES]
+        if invalid:
+            print(f"flow new: unknown role(s): {', '.join(invalid)} "
+                  f"(valid: {', '.join(ROLES)})", file=sys.stderr)
+            return 1
     root = find_repo_root(args.root)
     lock_dir = os.path.join(root, ".task-locks")
     os.makedirs(lock_dir, exist_ok=True)
@@ -252,7 +634,9 @@ def cmd_new(args):
         "lockedAt": now,
         "completedAt": None,
         "agentId": args.agent,
-        "implementedBy": args.agent,
+        # v2 lifecycle: the creator is the Manager; the primary implementer
+        # stamps implementedBy at its IMPLEMENTATION_COMPLETE transition.
+        "implementedBy": None,
         "reviewedBy": None,
         "qaBy": None,
         "history": [
@@ -271,7 +655,16 @@ def cmd_new(args):
             "notes": "",
         },
     }
-    lock = {k: v for k, v in lock.items() if v is not None or k in ("completedAt", "reviewedBy", "qaBy")}
+    if args.surface:
+        # Predicted staffing only — changeSurface stays null until classify.
+        lock["changeSurface"] = None
+        lock["roles"] = {
+            "predicted": staffing_for(args.surface, implementers=implementers),
+            "actual": None,
+        }
+    lock = {k: v for k, v in lock.items()
+            if v is not None or k in ("completedAt", "reviewedBy", "qaBy",
+                                      "implementedBy", "changeSurface", "roles")}
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(lock, fh, indent=2, ensure_ascii=False)
         fh.write("\n")
@@ -332,26 +725,37 @@ def cmd_transition(args):
         )
         return 1
 
+    # Compensating surface rules (spec §5): a v2 Manager cannot dodge the
+    # review/QA gates by omitting classification. Yields to --force (waiver).
+    surface_refusal = _surface_transition_refusal(lock, target)
+    if surface_refusal and not args.force:
+        print(f"flow transition: {surface_refusal}. "
+              "--force overrides (records a waiver in history).", file=sys.stderr)
+        return 1
+
     now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    entry = {
+        "timestamp": now,
+        "fromStage": current,
+        "toStage": target,
+        "agentId": args.agent,
+        "reason": args.reason or "",
+    }
+    if surface_refusal:  # only reachable with --force
+        entry["forced"] = True
     lock["workStage"] = target
-    lock.setdefault("history", []).append(
-        {
-            "timestamp": now,
-            "fromStage": current,
-            "toStage": target,
-            "agentId": args.agent,
-            "reason": args.reason or "",
-        }
-    )
+    lock.setdefault("history", []).append(entry)
     if target == "MERGED" and not args.force:
         open_items = _unresolved_followups(path, lock)
         if open_items:
             print(
                 "flow transition: MERGED refused — unresolved follow-ups "
                 f"(`- [ ]`) in {open_items[0].rsplit(':', 1)[0]}/: "
-                f"{', '.join(open_items)}. Return them to the coder "
-                "(guides/pipeline.md 'Follow-up policy (no deferred problems)'); "
-                "--force is allowed only with a user waiver recorded in history.",
+                f"{', '.join(open_items)}. Return them to the surface-owning "
+                "role (coder for code findings, tech_writer for docs findings "
+                "— guides/pipeline.md 'Follow-up policy (no deferred "
+                "problems)'); --force is allowed only with a user waiver "
+                "recorded in history.",
                 file=sys.stderr,
             )
             return 1
@@ -362,11 +766,283 @@ def cmd_transition(args):
         lock["reviewedBy"] = args.agent
     if target in ("QA_PASSED", "QA_FAILED", "QA_CONDITIONAL_PASS"):
         lock["qaBy"] = args.agent
+    if target == "IMPLEMENTATION_COMPLETE":
+        # v2 lifecycle: the primary implementer stamps implementedBy here.
+        lock["implementedBy"] = args.agent
 
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(lock, fh, indent=2, ensure_ascii=False)
         fh.write("\n")
     print(f"flow transition: {lock.get('taskId')} {current!r} -> {target!r}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# classify (gate-time surface verification)
+# ---------------------------------------------------------------------------
+
+def cmd_classify(args):
+    path = args.lock if os.path.isabs(args.lock) else os.path.join(find_repo_root(), args.lock)
+    if not os.path.exists(path):
+        print(f"flow classify: lock file not found: {path}", file=sys.stderr)
+        return 1
+    try:
+        lock = load_lock(path)
+    except json.JSONDecodeError as exc:
+        print(f"flow classify: unparseable lock JSON ({exc})", file=sys.stderr)
+        return 1
+
+    branch = lock.get("branch")
+    if not branch:
+        print("flow classify: lock has no 'branch'; cannot derive the surface "
+              "from git diff main...<branch>", file=sys.stderr)
+        return 1
+    # The derivation diff runs in the --repo override when given (e.g. a
+    # nested implementation repo hosting the branch while the lock lives in
+    # the host repo); default is the repo containing the lock.
+    if args.repo:
+        repo = _git_toplevel(args.repo)
+        if not repo:
+            print(f"flow classify: --repo {args.repo} is not inside a git "
+                  "repository; the surface is derived from a git diff there",
+                  file=sys.stderr)
+            return 1
+        proc = subprocess.run(
+            ["git", "-C", repo, "rev-parse", "--verify", "--quiet", branch],
+            capture_output=True, text=True,
+        )
+        if proc.returncode != 0:
+            print(f"flow classify: branch {branch!r} not found in diff repo "
+                  f"{repo}", file=sys.stderr)
+            return 1
+    else:
+        repo = repo_root_for(path)
+        if not repo:
+            print(f"flow classify: {os.path.dirname(path) or '.'} is not inside a "
+                  "git repository; the surface is derived from the branch diff",
+                  file=sys.stderr)
+            return 1
+    proc = subprocess.run(
+        ["git", "-C", repo, "diff", "--name-only", "-z", f"main...{branch}"],
+        capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        print(f"flow classify: git diff failed for main...{branch}: "
+              f"{proc.stderr.strip()}", file=sys.stderr)
+        return 1
+    paths = [p for p in proc.stdout.split("\0") if p]
+    classes = load_path_classes(repo)
+    evidence = derive_surface(paths, classes)
+    derived = evidence["surface"]
+
+    # --surface is an assertion, cross-checked against the derivation; there
+    # is no --force escape here — the operator fixes the flag.
+    if args.surface != derived:
+        print(
+            f"flow classify: --surface {args.surface} disagrees with the diff: "
+            f"derived {derived} (code={evidence['codePaths']}, "
+            f"docs={evidence['docsPaths']}, neutral={evidence['neutralPaths']}); "
+            f"samples: {'; '.join(evidence['samplePaths']) or 'none'}",
+            file=sys.stderr,
+        )
+        return 1
+
+    # tracker-only is the Q1 carve-out: DOCS surface whose DOCS-class diff is
+    # entirely under Tasks/**.
+    if args.docs_scope == "tracker-only":
+        offenders = [p for p in paths
+                     if path_class(p, classes) == "docs" and not p.startswith("Tasks/")]
+        if derived != "DOCS":
+            print(f"flow classify: --docs-scope tracker-only refused: derived "
+                  f"surface is {derived}, not DOCS", file=sys.stderr)
+            return 1
+        if offenders:
+            print(f"flow classify: --docs-scope tracker-only refused: DOCS-class "
+                  f"paths outside Tasks/: {'; '.join(offenders)}", file=sys.stderr)
+            return 1
+
+    # Staffing reconciliation against the prediction (legacy adoption: a lock
+    # without a predicted surface skips this check).
+    predicted = (lock.get("roles") or {}).get("predicted") or {}
+    predicted_surface = predicted.get("surface")
+    narrowing = forced = False
+    if predicted_surface and predicted_surface != derived:
+        if predicted_surface == "MIXED" and derived in ("CODE", "DOCS"):
+            narrowing = True  # benign: one round cut during implementation
+        elif args.force:
+            forced = True  # waiver, recorded in history
+        else:
+            print(
+                f"flow classify: predicted surface {predicted_surface} but the "
+                f"diff verifies as {derived} — a widening mismatch is treated "
+                "like a disproven premise: back into work or escalate to the "
+                "user (--force records a waiver)",
+                file=sys.stderr,
+            )
+            return 1
+
+    docs_scope = args.docs_scope
+    if docs_scope is None and derived == "DOCS":
+        docs_scope = predicted.get("docsScope") or "standard"
+    lock["changeSurface"] = derived
+    lock.setdefault("roles", {})["actual"] = staffing_for(derived, docs_scope=docs_scope)
+
+    # Checkpoint-style history entry: evidence without moving workStage.
+    now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    stage = lock.get("workStage")
+    diff_source = "--repo override" if args.repo else "lock repo (default)"
+    lock.setdefault("history", []).append({
+        "timestamp": now,
+        "fromStage": stage,
+        "toStage": stage,
+        "agentId": args.agent,
+        "reason": (f"classified: {derived} / {args.risk_class} — "
+                   f"code={evidence['codePaths']} docs={evidence['docsPaths']} "
+                   f"neutral={evidence['neutralPaths']} — diff: {diff_source}"),
+        "classification": {
+            "surface": derived,
+            "riskClass": args.risk_class,
+            "diffRepo": repo,
+            "docsScope": docs_scope,
+            "codePaths": evidence["codePaths"],
+            "docsPaths": evidence["docsPaths"],
+            "neutralPaths": evidence["neutralPaths"],
+            "samplePaths": evidence["samplePaths"],
+            "predicted": predicted_surface,
+            "narrowing": narrowing,
+            "forced": forced,
+        },
+    })
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(lock, fh, indent=2, ensure_ascii=False)
+        fh.write("\n")
+    suffix = " [narrowing]" if narrowing else ""
+    suffix += " [forced]" if forced else ""
+    print(f"flow classify: {lock.get('taskId')} surface {derived} "
+          f"(code={evidence['codePaths']}, docs={evidence['docsPaths']}, "
+          f"neutral={evidence['neutralPaths']}){suffix}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# role marker (<git-common-dir>/isk-role)
+# ---------------------------------------------------------------------------
+
+def _git_common_dir():
+    """The main .git directory — shared by linked worktrees (in a worktree,
+    `.git` is a file, so the common dir is the only stable home for the
+    marker). None outside a repository."""
+    proc = _git("rev-parse", "--git-common-dir")
+    if proc.returncode != 0:
+        return None
+    out = proc.stdout.strip()
+    if not out:
+        return None
+    return out if os.path.isabs(out) else os.path.abspath(out)
+
+
+def cmd_role(args):
+    common = _git_common_dir()
+    if not common:
+        print("flow role: not inside a git repository — the role marker lives "
+              "at <git-common-dir>/isk-role", file=sys.stderr)
+        return 1
+    marker = os.path.join(common, "isk-role")
+    log_path = os.path.join(common, "isk-role.log")
+
+    if args.role_command == "set":
+        if args.role_name not in ROLES:
+            print(f"flow role: unknown role {args.role_name!r} "
+                  f"(valid: {', '.join(ROLES)})", file=sys.stderr)
+            return 1
+        previous = "unrestricted"
+        if os.path.isfile(marker):
+            with open(marker, "r", encoding="utf-8") as fh:
+                previous = fh.read().strip() or "unrestricted"
+        now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+        with open(marker, "w", encoding="utf-8") as fh:
+            fh.write(args.role_name + "\n")
+        with open(log_path, "a", encoding="utf-8") as fh:
+            fh.write(f"{now} {previous} -> {args.role_name} by {args.agent}\n")
+        print(f"flow role: {previous} -> {args.role_name} (marker {marker})")
+        return 0
+
+    if args.role_command == "show":
+        if os.path.isfile(marker):
+            with open(marker, "r", encoding="utf-8") as fh:
+                print(fh.read().strip() or "unrestricted")
+        else:
+            print("unrestricted")
+        return 0
+
+    # log
+    if os.path.isfile(log_path):
+        with open(log_path, "r", encoding="utf-8") as fh:
+            sys.stdout.write(fh.read())
+    else:
+        print("empty")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# archive (lock retirement)
+# ---------------------------------------------------------------------------
+
+def cmd_archive(args):
+    path = args.lock if os.path.isabs(args.lock) else os.path.join(find_repo_root(args.root), args.lock)
+    if not os.path.exists(path):
+        print(f"flow archive: lock file not found: {path}", file=sys.stderr)
+        return 1
+    try:
+        lock = load_lock(path)
+    except json.JSONDecodeError as exc:
+        print(f"flow archive: unparseable lock JSON ({exc})", file=sys.stderr)
+        return 1
+    if (normalize_stage(lock.get("workStage")) != "MERGED"
+            or lock.get("status") != "COMPLETED") and not args.force:
+        print(f"flow archive: refused — {lock.get('taskId')} is at "
+              f"{lock.get('workStage')!r}/{lock.get('status')!r}; only "
+              "MERGED+COMPLETED locks archive (--force to override)",
+              file=sys.stderr)
+        return 1
+    repo = repo_root_for(path)
+    if not repo:
+        print("flow archive: the lock is not inside a git repository; the "
+              "archival commit would be untracked", file=sys.stderr)
+        return 1
+    # realpath both sides: macOS /tmp is a symlink (/var -> /private/var), and
+    # git reports the canonical toplevel — relpath across the symlink would
+    # produce ../.. paths git rejects as "outside repository".
+    real_repo = os.path.realpath(repo)
+    rel_old = os.path.relpath(os.path.realpath(path), real_repo)
+    dest = os.path.join(real_repo, ".task-locks", "completed", os.path.basename(path))
+    rel_new = os.path.relpath(dest, real_repo)
+    if os.path.abspath(dest) == os.path.realpath(path):
+        print(f"flow archive: {rel_old} is already in .task-locks/completed/",
+              file=sys.stderr)
+        return 1
+    task_id = str(lock.get("taskId") or os.path.basename(path)[:-len(".lock.json")])
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    shutil.move(path, dest)
+    proc = subprocess.run(["git", "-C", repo, "add", "--", rel_old, rel_new],
+                          capture_output=True, text=True)
+    if proc.returncode != 0:
+        print(f"flow archive: git add failed ({proc.stderr.strip()}); the lock "
+              f"was moved to {rel_new} but not committed", file=sys.stderr)
+        return 1
+    message = f"chore(lock): archive {task_id}"
+    proc = subprocess.run(
+        ["git", "-C", repo, "commit", "-m", message, "--", rel_old, rel_new],
+        capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        print(f"flow archive: git commit failed ({proc.stderr.strip()}); the "
+              f"lock was moved to {rel_new} and staged, but not committed",
+              file=sys.stderr)
+        return 1
+    sha = subprocess.run(["git", "-C", repo, "rev-parse", "--short", "HEAD"],
+                         capture_output=True, text=True).stdout.strip()
+    print(f"flow archive: {rel_old} -> {rel_new} (commit {sha}, {message})")
     return 0
 
 
@@ -431,7 +1107,7 @@ def check_branch_sha(sha, branch, problems, warnings):
     if not is_gate(lock.get("workStage")):
         problems.append(f"{path}: unknown workStage {lock.get('workStage')!r}")
 
-    needs_artifacts = stage in {"QA_PASSED", "QA_CONDITIONAL_PASS", "REFLECTION_COMPLETE", "MERGED"}
+    needs_artifacts = stage in NEEDS_ARTIFACT_STAGES
     if needs_artifacts:
         skipped = any(
             "SKIPPED" in str(entry_stage(h) or "") for h in lock.get("history", []) if isinstance(h, dict)
@@ -564,6 +1240,8 @@ def main(argv=None):
                    help="also fail on warnings")
     p.add_argument("--lenient", action="store_true",
                    help="never fail; report only")
+    p.add_argument("--force", action="store_true",
+                   help="downgrade surface-aware artifact failures to warnings (waiver)")
     p.set_defaults(func=cmd_validate)
 
     p = sub.add_parser("new", help="create a task lock")
@@ -573,8 +1251,34 @@ def main(argv=None):
     p.add_argument("--branch")
     p.add_argument("--plan")
     p.add_argument("--milestone")
+    p.add_argument("--surface", choices=SURFACES,
+                   help="record predicted staffing (roles.predicted); "
+                        "changeSurface stays null until classify")
+    p.add_argument("--implementers",
+                   help="comma-separated implementer roles overriding the "
+                        "surface default (e.g. coder,tech_writer)")
     p.add_argument("--force", action="store_true")
     p.set_defaults(func=cmd_new)
+
+    p = sub.add_parser("classify", help="derive the change surface from the branch diff")
+    p.add_argument("lock", help="path to lock file")
+    p.add_argument("--surface", required=True, choices=SURFACES,
+                   help="asserted change surface (cross-checked against the "
+                        "diff; the flag records evidence, it does not override)")
+    p.add_argument("--class", dest="risk_class", required=True,
+                   choices=("STANDARD", "CRITICAL"),
+                   help="risk class (depth only)")
+    p.add_argument("--docs-scope", choices=("tracker-only",),
+                   help="assert the Q1 carve-out: DOCS diff entirely under Tasks/**")
+    p.add_argument("--repo",
+                   help="derive the diff from another repository (e.g. a nested "
+                        "implementation repo hosting the branch while the lock "
+                        "lives in the host repo); default: the lock's own repo")
+    p.add_argument("--agent", required=True)
+    p.add_argument("--force", action="store_true",
+                   help="record a waiver for a predicted-surface mismatch "
+                        "(not valid for a wrong assertion)")
+    p.set_defaults(func=cmd_classify)
 
     p = sub.add_parser("transition", help="move a lock to a new gate stage")
     p.add_argument("lock", help="path to lock file")
@@ -583,6 +1287,25 @@ def main(argv=None):
     p.add_argument("--reason")
     p.add_argument("--force", action="store_true", help="override transition legality")
     p.set_defaults(func=cmd_transition)
+
+    p = sub.add_parser("role", help="show/set/log the active role marker "
+                                    "(<git-common-dir>/isk-role)")
+    role_sub = p.add_subparsers(dest="role_command", required=True)
+    rp = role_sub.add_parser("set", help="write the role marker and append the switch log")
+    rp.add_argument("role_name", help=f"one of: {', '.join(ROLES)}")
+    rp.add_argument("--agent", required=True)
+    rp.set_defaults(func=cmd_role)
+    rp = role_sub.add_parser("show", help="print the current role (or 'unrestricted')")
+    rp.set_defaults(func=cmd_role)
+    rp = role_sub.add_parser("log", help="print the role switch log (or 'empty')")
+    rp.set_defaults(func=cmd_role)
+
+    p = sub.add_parser("archive", help="move a MERGED+COMPLETED lock to "
+                                       ".task-locks/completed/ with a scoped commit")
+    p.add_argument("lock", help="path to lock file")
+    p.add_argument("--force", action="store_true",
+                   help="archive even when the lock is not MERGED+COMPLETED")
+    p.set_defaults(func=cmd_archive)
 
     p = sub.add_parser("check-push", help="pre-push gate for ai/* branches")
     p.add_argument("refs", nargs="*", help="ref lines (default: read git pre-push stdin)")
