@@ -559,6 +559,21 @@ assert_contains "list-less path-classes.json warns on stderr" \
   "$(override_load_err "$OVEMPTY")" "no path-class lists"
 assert_eq "  built-in classes still used" "true" "$(override_load_builtin "$OVEMPTY")"
 
+# Round-2 residual: a JSON-VALID but non-object override (reviewer shapes:
+# [], "x", 5, null) must take the same warn-and-fallback path — no traceback.
+OVSHAPE="$TMP/shapes-override"
+mkdir -p "$OVSHAPE/.task-locks"
+for shape in '[]' '"x"' '5' 'null'; do
+  printf '%s' "$shape" >"$OVSHAPE/.task-locks/path-classes.json"
+  err="$(override_load_err "$OVSHAPE")"
+  assert_contains "path-classes.json $shape warns (not an object)" "$err" "not a JSON object"
+  case "$err" in
+    *Traceback*) fail "  no traceback for $shape" ;;
+    *) ok "  no traceback for $shape" ;;
+  esac
+  assert_eq "  built-in classes still used for $shape" "true" "$(override_load_builtin "$OVSHAPE")"
+done
+
 # ---------------------------------------------------------------------------
 section "6. validate — surface-aware rules, waivers, legacy unchanged"
 # ---------------------------------------------------------------------------

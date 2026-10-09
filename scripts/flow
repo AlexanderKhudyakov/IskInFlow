@@ -264,14 +264,21 @@ def load_path_classes(repo_root):
         try:
             with open(override, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
-            classes = {k: list(v) for k, v in data.items() if isinstance(v, list)}
-            if classes:
-                return classes
-            print(f"flow classify: ignoring {override}: no path-class lists; "
-                  "using built-in path classes", file=sys.stderr)
         except (ValueError, OSError) as exc:
             print(f"flow classify: ignoring malformed {override}: {exc}; "
                   "using built-in path classes", file=sys.stderr)
+            return DEFAULT_PATH_CLASSES
+        if not isinstance(data, dict):
+            # JSON-valid but not an object (`[]`, `"x"`, `5`, `null`) — same
+            # warn-and-fallback path instead of an AttributeError traceback.
+            print(f"flow classify: ignoring {override}: not a JSON object; "
+                  "using built-in path classes", file=sys.stderr)
+            return DEFAULT_PATH_CLASSES
+        classes = {k: list(v) for k, v in data.items() if isinstance(v, list)}
+        if classes:
+            return classes
+        print(f"flow classify: ignoring {override}: no path-class lists; "
+              "using built-in path classes", file=sys.stderr)
     return DEFAULT_PATH_CLASSES
 
 
