@@ -751,9 +751,11 @@ def cmd_transition(args):
             print(
                 "flow transition: MERGED refused — unresolved follow-ups "
                 f"(`- [ ]`) in {open_items[0].rsplit(':', 1)[0]}/: "
-                f"{', '.join(open_items)}. Return them to the coder "
-                "(guides/pipeline.md 'Follow-up policy (no deferred problems)'); "
-                "--force is allowed only with a user waiver recorded in history.",
+                f"{', '.join(open_items)}. Return them to the surface-owning "
+                "role (coder for code findings, tech_writer for docs findings "
+                "— guides/pipeline.md 'Follow-up policy (no deferred "
+                "problems)'); --force is allowed only with a user waiver "
+                "recorded in history.",
                 file=sys.stderr,
             )
             return 1

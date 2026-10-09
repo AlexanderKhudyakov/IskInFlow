@@ -243,6 +243,25 @@ assert_ok "legacy lock: CODE_REVIEW_SKIPPED unchanged"
 run_flow transition "$LK" QA_SKIPPED --agent dev
 assert_ok "legacy lock: CODE_REVIEW_SKIPPED -> QA_SKIPPED unchanged"
 
+# MERGED follow-up refusal routes findings by surface (0041 review round-2
+# disposition item): docs findings must not be told to go back to the coder.
+R="$TMP/tr-followup"; LK="$R/.task-locks/f1.lock.json"
+run_flow --root "$R" new f1 --agent mgr
+run_flow transition "$LK" IMPLEMENTATION_COMPLETE --agent dev
+run_flow transition "$LK" AWAITING_REVIEW --agent dev
+run_flow transition "$LK" CODE_REVIEW_APPROVED --agent rev
+run_flow transition "$LK" AWAITING_QA --agent qa
+run_flow transition "$LK" QA_PASSED --agent qa
+run_flow transition "$LK" REFLECTION_COMPLETE --agent ref
+mkdir -p "$R/.task-locks/artifacts/f1"
+printf '# Reflection\n- [ ] pending item\n' >"$R/.task-locks/artifacts/f1/reflection.md"
+run_flow transition "$LK" MERGED --agent ref
+assert_refused "MERGED refused while an artifact has an unchecked follow-up"
+assert_contains "  refusal routes by surface-owning role" "$ERR" "surface-owning role"
+assert_contains "  names the coder for code findings" "$ERR" "coder for code findings"
+assert_contains "  names the tech_writer for docs findings" "$ERR" "tech_writer for docs findings"
+assert_not_contains "  no longer sends docs findings to the coder" "$ERR" "Return them to the coder"
+
 # ---------------------------------------------------------------------------
 section "2. implementedBy lifecycle"
 # ---------------------------------------------------------------------------
