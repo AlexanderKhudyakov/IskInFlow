@@ -26,11 +26,16 @@ Protocol (task 0043 spike decisions a/b, binding):
   - The manager's mechanical git set is coordination-scoped (spec §3.4):
     `git add` / `git commit` pathspecs must fall under .task-locks/** or
     Tasks/** (whole-tree switches like -A/-u/--all and bare '.'/'./' are
-    denied; `git commit` without pathspecs is allowed). Per the cross-repo
-    procedure (.agents/skills/procedure/iskinflow-cross-repo-task-execution.md)
-    `git -C IskInFlow[/...] <verb>` is allowed for the mechanical verbs
-    {fetch, pull, push, status, log, merge, worktree, branch, diff} — the
-    nested clone's add/commit stay with the coder role.
+    denied; `git commit -a/--all/-i`, which implicitly stage ALL tracked
+    modifications, are denied; a pathspec-free `git commit` of already-staged
+    content is allowed; pathspecs are lexically resolved so `..` traversal
+    cannot escape the prefixes). Per the cross-repo execution procedure
+    (host-repo path: .agents/skills/procedure/
+    iskinflow-cross-repo-task-execution.md — that path lives in the KVGA host
+    repo, not in this repository) `git -C IskInFlow[/...] <verb>` is allowed
+    for the mechanical verbs {fetch, pull, push, status, log, merge,
+    worktree, branch, diff} — the nested clone's add/commit stay with the
+    coder role.
 
 Every deny appends `<timestamp> DENY <role> <tool> <target>` to
 <git-common-dir>/isk-role.log — the same file marker switches land in — so
@@ -45,6 +50,7 @@ import datetime as dt
 import fnmatch
 import json
 import os
+import posixpath
 import re
 import subprocess
 import sys
@@ -64,10 +70,11 @@ MCP_PREFIX = "mcp__"
 # scripts, tracker shell helpers, and the mechanical git set. `diff` only with
 # --name-only (the manager diffs to enumerate paths, never to read content).
 # add/commit are coordination-scoped (spec §3.4, see _manager_add_commit_scoped).
-# Cross-repo procedure (.agents/skills/procedure/
-# iskinflow-cross-repo-task-execution.md): `git -C IskInFlow[/...] <verb>` is
-# allowed for CROSS_REPO_GIT_VERBS; the nested clone's add/commit stay with
-# the coder role.
+# Cross-repo execution procedure (host-repo path: .agents/skills/procedure/
+# iskinflow-cross-repo-task-execution.md — that path lives in the KVGA host
+# repo, not in this repository): `git -C IskInFlow[/...] <verb>` is allowed
+# for CROSS_REPO_GIT_VERBS; the nested clone's add/commit stay with the
+# coder role.
 MANAGER_GIT = {
     "status", "fetch", "pull", "push", "merge", "rebase", "checkout",
     "switch", "branch", "worktree", "add", "commit", "log", "show",
@@ -97,6 +104,9 @@ _GIT_VALUE_FLAGS = {
 # Tokens carrying substitution/quote residue are shell-expansion artifacts,
 # not parseable pathspecs — ignored by the scope check (documented envelope).
 _GIT_PATH_UNSAFE = re.compile(r"[$`()]")
+# git commit flags that implicitly stage ALL tracked modifications repo-wide
+# — the same whole-tree staging class as `git add -u`, denied on commit.
+_COMMIT_IMPLICIT_STAGING = {"-a", "--all", "-i", "--include"}
 
 
 def _fail_open(note):
@@ -205,15 +215,22 @@ def _normalize_rel(path):
 
 
 def _coordination_scoped(path):
-    """spec §3.4 coordination prefixes: .task-locks/** or Tasks/**."""
-    path = _normalize_rel(path)
+    """spec §3.4 coordination prefixes: .task-locks/** or Tasks/**.
+
+    Lexically resolved before the prefix check: `..` traversal that escapes
+    the prefixes (Tasks/../../AGENTS.md) is denied, while a benign internal
+    hop (Tasks/foo/../bar.md) stays allowed."""
+    path = posixpath.normpath(_normalize_rel(path))
     return path in (".task-locks", "Tasks") or path.startswith(
         (".task-locks/", "Tasks/"))
 
 
 def _under_iskinflow(path):
-    """Cross-repo procedure target: IskInFlow itself or anything under it."""
-    path = _normalize_rel(path)
+    """Cross-repo procedure target: IskInFlow itself or anything under it.
+
+    Lexically resolved like the coordination check: `..` traversal escaping
+    IskInFlow/ is denied."""
+    path = posixpath.normpath(_normalize_rel(path))
     return path == "IskInFlow" or path.startswith("IskInFlow/")
 
 
@@ -222,11 +239,17 @@ def _manager_add_commit_scoped(tokens):
 
     Every parseable pathspec must fall under the coordination prefixes;
     whole-tree switches (-A/-u/--all) and bare '.'/'./' are unscoped and
-    denied; `git commit` without pathspecs is allowed. Substitution residue
-    (unbalanced quotes, $, backticks, parens) is not a parseable pathspec and
-    is ignored — segment allowlist, not adversarial security (spec §4.6.2)."""
+    denied; `git commit -a/--all/-i` implicitly stage ALL tracked
+    modifications and are denied; a `git commit` without pathspecs or
+    implicit-staging flags is allowed (already-staged content only).
+    Substitution residue (unbalanced quotes, $, backticks, parens) is not a
+    parseable pathspec and is ignored — segment allowlist, not adversarial
+    security (spec §4.6.2)."""
     positional = []
     args = tokens[2:]
+    if tokens[1] == "commit" and any(
+            a in _COMMIT_IMPLICIT_STAGING for a in args):
+        return False
     i = 0
     while i < len(args):
         arg = args[i]

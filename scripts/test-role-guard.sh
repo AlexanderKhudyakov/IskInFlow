@@ -16,8 +16,9 @@
 #   8.  worktree marker resolution through git-common-dir
 #   9.  malformed payload -> fail-open (exit 0)
 #   10. flow role matrix JSON: every role, --classify semantics, unknown role
-#   11. manager git add/commit coordination scoping + cross-repo git -C verbs
-#       (spec §3.4 + cross-repo execution procedure)
+#   11. manager git add/commit coordination scoping (lexical .. resolution,
+#       no implicit-staging commit flags) + cross-repo git -C verbs
+#       (spec §3.4 + host-repo cross-repo execution procedure)
 #   12. unknown marker role -> fail-open + UNKNOWN-ROLE audit line
 #
 # Python 3 stdlib + git only. Portable bash 3.2 (no associative arrays); every
@@ -518,8 +519,27 @@ assert_deny "manager git: commit pathspec outside the coordination prefixes deni
 run_guard "$R" "$(bash_payload "git add ./.task-locks/a.lock.json")"
 assert_allow "manager git: leading ./ normalized before the prefix check"
 
-# Cross-repo execution procedure (.agents/skills/procedure/
-# iskinflow-cross-repo-task-execution.md): the manager runs the mechanical git
+# Pathspecs are lexically resolved: `..` hops that stay inside a coordination
+# prefix are fine, traversal that escapes it is denied (review round 2, NF1).
+run_guard "$R" "$(bash_payload "git add Tasks/foo/../bar.md")"
+assert_allow "manager git: benign .. hop staying inside Tasks/ allowed"
+run_guard "$R" "$(bash_payload "git add Tasks/../../AGENTS.md")"
+assert_deny "manager git: .. traversal escaping the coordination prefix denied"
+run_guard "$R" "$(bash_payload "git add .task-locks/../AGENTS.md")"
+assert_deny "manager git: .. traversal out of .task-locks denied"
+
+# Implicit-staging commit flags stage ALL tracked modifications repo-wide —
+# the `git add -u` the guard denies, folded into the commit (round 2, NF1).
+run_guard "$R" "$(bash_payload "git commit -a -m x")"
+assert_deny "manager git: commit -a implicit staging denied"
+run_guard "$R" "$(bash_payload "git commit --all -m x")"
+assert_deny "manager git: commit --all implicit staging denied"
+run_guard "$R" "$(bash_payload "git commit -i -m x")"
+assert_deny "manager git: commit -i implicit staging denied"
+
+# Cross-repo execution procedure (host-repo path: .agents/skills/procedure/
+# iskinflow-cross-repo-task-execution.md — that path lives in the KVGA host
+# repo, not in this repository): the manager runs the mechanical git
 # set in the nested IskInFlow clone and its worktrees; its add/commit stay
 # KVGA-coordination-only (the nested repo's commits are the coder role's).
 run_guard "$R" "$(bash_payload "git -C IskInFlow status")"
@@ -536,6 +556,8 @@ run_guard "$R" "$(bash_payload "git -C IskInFlow add Kanwa/Foo.swift")"
 assert_deny "manager git: cross-repo add denied"
 run_guard "$R" "$(bash_payload "git -C Tasks status")"
 assert_deny "manager git: -C outside IskInFlow denied"
+run_guard "$R" "$(bash_payload "git -C IskInFlow/../Tasks status")"
+assert_deny "manager git: -C .. traversal escaping IskInFlow denied"
 
 # Boundary pin (spec §4.6.2: "Bash parsing is a segment allowlist, not
 # adversarial security"): command substitution is not segmented or inspected —
