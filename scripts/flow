@@ -12,6 +12,8 @@ Subcommands:
               repos); set changeSurface and roles.actual with diff evidence
               in history.
   transition  Move a lock to a new gate stage, validating legality, appending history.
+  note        Append a checkpoint entry to a lock's history without moving
+              workStage (progress notes; task 0043 item 7).
   check-push  Pre-push gate for ai/* branches (lock present, stage known, artifacts exist).
   role        Show/set/log the active role marker (<git-common-dir>/isk-role).
   archive     Move a MERGED+COMPLETED lock to .task-locks/completed/ with a
@@ -778,6 +780,48 @@ def cmd_transition(args):
 
 
 # ---------------------------------------------------------------------------
+# note (checkpoint history entry)
+# ---------------------------------------------------------------------------
+
+def cmd_note(args):
+    """Append a checkpoint entry WITHOUT moving workStage or status.
+
+    `flow transition`'s refusal message points non-gate observations here:
+    checkpoints are append-only history evidence (`fromStage` == `toStage`,
+    `checkpoint: true`) and never satisfy a gate requirement by themselves.
+    """
+    root = find_repo_root(args.root)
+    path = args.lock if os.path.isabs(args.lock) else os.path.join(root, args.lock)
+    if not os.path.exists(path):
+        print(f"flow note: lock file not found: {path}", file=sys.stderr)
+        return 1
+    if not repo_root_for(path):
+        print("flow note: the lock is not inside a git repository; checkpoint "
+              "entries are part of the tracked workflow record", file=sys.stderr)
+        return 1
+    try:
+        lock = load_lock(path)
+    except json.JSONDecodeError as exc:
+        print(f"flow note: unparseable lock JSON ({exc})", file=sys.stderr)
+        return 1
+    stage = lock.get("workStage")
+    now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    lock.setdefault("history", []).append({
+        "timestamp": now,
+        "fromStage": stage,
+        "toStage": stage,
+        "agentId": args.agent,
+        "reason": args.text,
+        "checkpoint": True,
+    })
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(lock, fh, indent=2, ensure_ascii=False)
+        fh.write("\n")
+    print(f"flow note: {lock.get('taskId')} checkpoint appended at {stage!r}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # classify (gate-time surface verification)
 # ---------------------------------------------------------------------------
 
@@ -1287,6 +1331,14 @@ def main(argv=None):
     p.add_argument("--reason")
     p.add_argument("--force", action="store_true", help="override transition legality")
     p.set_defaults(func=cmd_transition)
+
+    p = sub.add_parser("note", help="append a checkpoint entry to a lock's "
+                                    "history without changing workStage")
+    p.add_argument("lock", help="path to lock file")
+    p.add_argument("--text", required=True,
+                   help="checkpoint text, recorded as the history reason")
+    p.add_argument("--agent", required=True)
+    p.set_defaults(func=cmd_note)
 
     p = sub.add_parser("role", help="show/set/log the active role marker "
                                     "(<git-common-dir>/isk-role)")
