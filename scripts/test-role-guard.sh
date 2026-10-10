@@ -5,7 +5,8 @@
 # Coverage contract (spec iskinflow_delegation_tech_spec.md §8 + task 0043
 # spike decisions a/b):
 #   1.  manager zero-write matrix (Edit/Write/MultiEdit/NotebookEdit) + deny log
-#   2.  manager bash allowlist, compound segmentation (&&/||/;/|)
+#   2.  manager bash allowlist, compound segmentation (&&/||/;/|/newline),
+#       command-substitution boundary (spec §4.6.2 documented envelope)
 #   3.  researcher read-only bash + the research-*.md write exception (no Edit)
 #   4.  network row wholesale: WebSearch / WebFetch / mcp__*
 #   5.  per-role write profiles (reviewer / QA / reflector / planner /
@@ -15,6 +16,9 @@
 #   8.  worktree marker resolution through git-common-dir
 #   9.  malformed payload -> fail-open (exit 0)
 #   10. flow role matrix JSON: every role, --classify semantics, unknown role
+#   11. manager git add/commit coordination scoping + cross-repo git -C verbs
+#       (spec §3.4 + cross-repo execution procedure)
+#   12. unknown marker role -> fail-open + UNKNOWN-ROLE audit line
 #
 # Python 3 stdlib + git only. Portable bash 3.2 (no associative arrays); every
 # scenario feeds canned JSON payloads to the guard inside throwaway mktemp git
@@ -196,6 +200,16 @@ assert_allow "manager bash: git diff --name-only allowed"
 run_guard "$R" "$(bash_payload "git log --oneline -5")"
 assert_allow "manager bash: git log allowed"
 
+run_guard "$R" "$(bash_payload "FOO=bar git status")"
+assert_allow "manager bash: env prefix stripped"
+
+# Newline is a shell command separator: the second line must be judged on its
+# own, not ride in behind an allowlisted first line (review round 1, C2).
+run_guard "$R" "$(bash_payload "$(printf 'git status\nrm -rf build')")"
+assert_deny "manager bash: newline-separated second segment denies"
+assert_contains "  newline deny logs the offending segment" \
+  "$(last_log_line "$R")" "DENY manager Bash rm -rf build"
+
 run_guard "$R" "$(bash_payload "grep -rn foo .")"
 assert_deny "manager bash: grep denied"
 run_guard "$R" "$(bash_payload "rm file")"
@@ -233,9 +247,13 @@ run_guard "$R" "$(bash_payload "memsearch search role-guard")"
 assert_allow "researcher bash: memsearch search allowed"
 run_guard "$R" "$(bash_payload "memsearch expand abc123")"
 assert_allow "researcher bash: memsearch expand allowed"
+run_guard "$R" "$(bash_payload "FOO=bar git diff")"
+assert_allow "researcher bash: env prefix stripped (C8 parity with manager)"
 
 run_guard "$R" "$(bash_payload "sed -i s/a/b/ file")"
 assert_deny "researcher bash: sed -i denied"
+run_guard "$R" "$(bash_payload "$(printf 'git diff\nsed -i s/a/b/ file')")"
+assert_deny "researcher bash: newline-separated second segment denies (C2)"
 run_guard "$R" "$(bash_payload "git commit -m x")"
 assert_deny "researcher bash: git commit denied"
 run_guard "$R" "$(bash_payload "rm file")"
@@ -467,6 +485,79 @@ OUT="$(python3 "$FLOW" --root "$NM" role matrix reflector 2>"$ERRFILE")"
 STATUS=$?
 assert_allow "matrix works outside a git repository (--root)"
 assert_eq "  reflector: skills class" '["skills"]' "$(json_field "$OUT" 'm["writeClasses"]')"
+
+# ---------------------------------------------------------------------------
+section "11. Manager git scoping (spec §3.4) + cross-repo git -C verbs"
+# ---------------------------------------------------------------------------
+
+set_marker "$R" manager
+
+run_guard "$R" "$(bash_payload "git add .task-locks/0043.lock.json")"
+assert_allow "manager git: add under .task-locks allowed"
+run_guard "$R" "$(bash_payload "git add Tasks/0043-x/task.md")"
+assert_allow "manager git: add under Tasks allowed"
+run_guard "$R" "$(bash_payload "git add .task-locks/a && git commit -m x")"
+assert_allow "manager git: scoped add + pathspec-free commit allowed"
+run_guard "$R" "$(bash_payload "git commit -m x Tasks/0043-x/task.md")"
+assert_allow "manager git: commit with a scoped pathspec allowed"
+
+run_guard "$R" "$(bash_payload "git add -A")"
+assert_deny "manager git: add -A unscoped denied"
+run_guard "$R" "$(bash_payload "git add -u")"
+assert_deny "manager git: add -u unscoped denied"
+run_guard "$R" "$(bash_payload "git add --all")"
+assert_deny "manager git: add --all unscoped denied"
+run_guard "$R" "$(bash_payload "git add .")"
+assert_deny "manager git: add . unscoped denied"
+run_guard "$R" "$(bash_payload "git add ./")"
+assert_deny "manager git: add ./ unscoped denied"
+run_guard "$R" "$(bash_payload "git add Kanwa/Foo.swift")"
+assert_deny "manager git: add outside the coordination prefixes denied"
+run_guard "$R" "$(bash_payload "git commit -m x Kanwa/Foo.swift")"
+assert_deny "manager git: commit pathspec outside the coordination prefixes denied"
+run_guard "$R" "$(bash_payload "git add ./.task-locks/a.lock.json")"
+assert_allow "manager git: leading ./ normalized before the prefix check"
+
+# Cross-repo execution procedure (.agents/skills/procedure/
+# iskinflow-cross-repo-task-execution.md): the manager runs the mechanical git
+# set in the nested IskInFlow clone and its worktrees; its add/commit stay
+# KVGA-coordination-only (the nested repo's commits are the coder role's).
+run_guard "$R" "$(bash_payload "git -C IskInFlow status")"
+assert_allow "manager git: cross-repo -C IskInFlow status allowed"
+run_guard "$R" "$(bash_payload "git -C IskInFlow/worktrees/0043 worktree list")"
+assert_allow "manager git: cross-repo worktree verb allowed"
+run_guard "$R" "$(bash_payload "git -C IskInFlow/worktrees/0043 diff main...ai/0043-x")"
+assert_allow "manager git: cross-repo diff allowed (procedure)"
+run_guard "$R" "$(bash_payload "git -C IskInFlow push origin ai/0043-x")"
+assert_allow "manager git: cross-repo push allowed"
+run_guard "$R" "$(bash_payload "git -C IskInFlow commit -m x")"
+assert_deny "manager git: cross-repo commit denied (coder's job)"
+run_guard "$R" "$(bash_payload "git -C IskInFlow add Kanwa/Foo.swift")"
+assert_deny "manager git: cross-repo add denied"
+run_guard "$R" "$(bash_payload "git -C Tasks status")"
+assert_deny "manager git: -C outside IskInFlow denied"
+
+# Boundary pin (spec §4.6.2: "Bash parsing is a segment allowlist, not
+# adversarial security"): command substitution is not segmented or inspected —
+# the substituted payload runs with the tool call, by design.
+run_guard "$R" "$(bash_payload 'git commit -m "$(make test)"')"
+assert_allow "manager git: command substitution inside the documented envelope"
+
+# ---------------------------------------------------------------------------
+section "12. Unknown marker role -> fail-open + audit line"
+# ---------------------------------------------------------------------------
+
+set_marker "$R" wizard   # hand-edited/typo'd marker (flow role set would refuse)
+run_guard "$R" "$(edit_payload Edit "$R/Kanwa/Foo.swift")"
+assert_allow "unknown marker role fails open (exit 0)"
+assert_contains "  unknown role audited with tool and target" \
+  "$(last_log_line "$R")" "UNKNOWN-ROLE wizard Edit Kanwa/Foo.swift"
+assert_contains "  stderr note names the unknown role" "$ERR" \
+  "unknown marker role 'wizard'"
+run_guard "$R" "$(bash_payload "make build")"
+assert_allow "unknown marker role: Bash also fails open"
+assert_contains "  Bash unknown-role line uses the tool as target" \
+  "$(last_log_line "$R")" "UNKNOWN-ROLE wizard Bash Bash"
 
 # ---------------------------------------------------------------------------
 printf '\n=== summary ===\n'

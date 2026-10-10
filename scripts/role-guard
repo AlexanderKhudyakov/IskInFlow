@@ -3,7 +3,10 @@
 
 A thin read-and-decide wrapper: the policy lives in `flow` (ROLE_MATRIX, single
 source) and is read through `flow role matrix --all` as JSON; this script only
-resolves the marker, classifies the tool call, and denies.
+resolves the marker, classifies the tool call, and denies. For bash policy the
+matrix exposes only the policy NAME per role (manager / researcher / broad);
+the name-to-command-set mapping is guard-owned by design, and an unknown
+future name degrades to broad.
 
 Protocol (task 0043 spike decisions a/b, binding):
   - Registered as a PreToolUse hook in both harnesses. Subagent tool calls DO
@@ -15,13 +18,24 @@ Protocol (task 0043 spike decisions a/b, binding):
     the model-visible permissionDecisionReason) and Claude Code (stderr is fed
     to the model). JSON stdout decisions are not used.
   - Fail-open: malformed payloads and any internal error exit 0. The guard is
-    accident prevention, never an outage source (spec §4.6.2).
+    accident prevention, never an outage source (spec §4.6.2). An unknown
+    marker role also fails open, with one UNKNOWN-ROLE audit line so a typo'd
+    marker shows up in the retrospective.
   - No marker at <git-common-dir>/isk-role -> unrestricted, exit 0 immediately.
     The common dir is the SHARED main .git, so linked worktrees are covered.
+  - The manager's mechanical git set is coordination-scoped (spec §3.4):
+    `git add` / `git commit` pathspecs must fall under .task-locks/** or
+    Tasks/** (whole-tree switches like -A/-u/--all and bare '.'/'./' are
+    denied; `git commit` without pathspecs is allowed). Per the cross-repo
+    procedure (.agents/skills/procedure/iskinflow-cross-repo-task-execution.md)
+    `git -C IskInFlow[/...] <verb>` is allowed for the mechanical verbs
+    {fetch, pull, push, status, log, merge, worktree, branch, diff} — the
+    nested clone's add/commit stay with the coder role.
 
 Every deny appends `<timestamp> DENY <role> <tool> <target>` to
 <git-common-dir>/isk-role.log — the same file marker switches land in — so
-the retrospective false-positive review has data.
+the retrospective false-positive review has data; unknown marker roles append
+`<timestamp> UNKNOWN-ROLE ...` lines the same way.
 
 Python 3 stdlib only. Best-effort by design (spec §4.6.2): Bash parsing is a
 segment allowlist, not adversarial security.
@@ -49,9 +63,18 @@ MCP_PREFIX = "mcp__"
 # Manager mechanical allowlist (spec §3.4/§4.4): framework CLI, framework
 # scripts, tracker shell helpers, and the mechanical git set. `diff` only with
 # --name-only (the manager diffs to enumerate paths, never to read content).
+# add/commit are coordination-scoped (spec §3.4, see _manager_add_commit_scoped).
+# Cross-repo procedure (.agents/skills/procedure/
+# iskinflow-cross-repo-task-execution.md): `git -C IskInFlow[/...] <verb>` is
+# allowed for CROSS_REPO_GIT_VERBS; the nested clone's add/commit stay with
+# the coder role.
 MANAGER_GIT = {
     "status", "fetch", "pull", "push", "merge", "rebase", "checkout",
     "switch", "branch", "worktree", "add", "commit", "log", "show",
+}
+CROSS_REPO_GIT_VERBS = {
+    "fetch", "pull", "push", "status", "log", "merge", "worktree",
+    "branch", "diff",
 }
 # Researcher read-only set (spec §4.4): read-only git, the code index,
 # text search, trivial readers, memsearch retrieval.
@@ -60,7 +83,20 @@ RESEARCHER_READERS = {"ast-index", "grep", "find", "rg", "cat", "ls", "wc"}
 RESEARCHER_MEMSEARCH = {"search", "expand"}
 
 _ENV_PREFIX = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-_SEGMENT_SPLIT = re.compile(r"&&|\|\||;|\|")
+# Newline is a shell command separator too: multi-line payloads must segment
+# like `a && b` does, or a denylisted second line rides in behind an
+# allowlisted first line.
+_SEGMENT_SPLIT = re.compile(r"&&|\|\||;|\||\r?\n")
+# Flags whose NEXT token is a value, not a pathspec (best-effort — the segment
+# allowlist is not adversarial security, spec §4.6.2).
+_GIT_VALUE_FLAGS = {
+    "-m", "--message", "-F", "--file", "-C", "--reedit-message",
+    "--reuse-message", "--fixup", "--squash", "--author", "--date",
+    "--cleanup", "--pathspec-from-file", "-c",
+}
+# Tokens carrying substitution/quote residue are shell-expansion artifacts,
+# not parseable pathspecs — ignored by the scope check (documented envelope).
+_GIT_PATH_UNSAFE = re.compile(r"[$`()]")
 
 
 def _fail_open(note):
@@ -114,7 +150,9 @@ def _load_matrix(root, classify=None):
     for rel in classify or []:
         cmd += ["--classify", rel]
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+        # 10 s: below the registered 15 s hook timeout so the guard's own
+        # controlled fail-open is the path that fires, not the harness kill.
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.TimeoutExpired):
         return None
     if proc.returncode != 0:
@@ -125,15 +163,26 @@ def _load_matrix(root, classify=None):
         return None
 
 
-def _log_deny(common_dir, role, tool, target):
-    """One audit line per deny; log failures never flip a deny into an allow."""
+def _log_event(common_dir, kind, role, tool, target):
+    """One audit line per enforcement event; log failures never flip a
+    decision."""
     try:
         now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
         with open(os.path.join(common_dir, "isk-role.log"), "a",
                   encoding="utf-8") as fh:
-            fh.write(f"{now} DENY {role} {tool} {target}\n")
+            fh.write(f"{now} {kind} {role} {tool} {target}\n")
     except OSError:
         pass
+
+
+def _log_deny(common_dir, role, tool, target):
+    _log_event(common_dir, "DENY", role, tool, target)
+
+
+def _log_unknown_role(common_dir, role, tool, target):
+    """Unknown marker roles fail open, but leave one line behind so a typo'd
+    marker is visible in the retrospective review."""
+    _log_event(common_dir, "UNKNOWN-ROLE", role, tool, target)
 
 
 def _deny(common_dir, role, tool, target, message):
@@ -148,6 +197,54 @@ def _strip_env_prefix(tokens):
     return tokens
 
 
+def _normalize_rel(path):
+    path = path.strip()
+    while path.startswith("./"):
+        path = path[2:]
+    return path
+
+
+def _coordination_scoped(path):
+    """spec §3.4 coordination prefixes: .task-locks/** or Tasks/**."""
+    path = _normalize_rel(path)
+    return path in (".task-locks", "Tasks") or path.startswith(
+        (".task-locks/", "Tasks/"))
+
+
+def _under_iskinflow(path):
+    """Cross-repo procedure target: IskInFlow itself or anything under it."""
+    path = _normalize_rel(path)
+    return path == "IskInFlow" or path.startswith("IskInFlow/")
+
+
+def _manager_add_commit_scoped(tokens):
+    """spec §3.4: the manager's git add/commit is coordination-scoped.
+
+    Every parseable pathspec must fall under the coordination prefixes;
+    whole-tree switches (-A/-u/--all) and bare '.'/'./' are unscoped and
+    denied; `git commit` without pathspecs is allowed. Substitution residue
+    (unbalanced quotes, $, backticks, parens) is not a parseable pathspec and
+    is ignored — segment allowlist, not adversarial security (spec §4.6.2)."""
+    positional = []
+    args = tokens[2:]
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--":
+            positional.extend(args[i + 1:])
+            break
+        if arg.startswith("-"):
+            i += 2 if arg in _GIT_VALUE_FLAGS else 1
+            continue
+        cleaned = arg.replace('"', "").replace("'", "")
+        if not _GIT_PATH_UNSAFE.search(cleaned):
+            positional.append(cleaned)
+        i += 1
+    if tokens[1] == "add" and not positional:
+        return False  # no pathspec: -A/-u/--all-style whole-tree staging
+    return all(_coordination_scoped(p) for p in positional)
+
+
 def _manager_segment_allowed(segment):
     tokens = _strip_env_prefix(segment.split())
     if not tokens:
@@ -159,7 +256,11 @@ def _manager_segment_allowed(segment):
         return True
     if cmd == "git":
         sub = tokens[1] if len(tokens) > 1 else None
+        if sub == "-C" and len(tokens) > 3 and _under_iskinflow(tokens[2]):
+            return tokens[3] in CROSS_REPO_GIT_VERBS
         if sub in MANAGER_GIT:
+            if sub in ("add", "commit"):
+                return _manager_add_commit_scoped(tokens)
             return True
         if sub == "diff" and "--name-only" in tokens[2:]:
             return True
@@ -167,7 +268,7 @@ def _manager_segment_allowed(segment):
 
 
 def _researcher_segment_allowed(segment):
-    tokens = segment.split()
+    tokens = _strip_env_prefix(segment.split())
     if not tokens:
         return True
     cmd = tokens[0]
@@ -234,8 +335,12 @@ def _decide(payload):
         classify = [rel_path]
 
     matrix = _load_matrix(root, classify)
-    if not isinstance(matrix, dict) or role not in (matrix.get("roles") or {}):
-        return _fail_open("role matrix unavailable or marker role unknown")
+    if not isinstance(matrix, dict):
+        return _fail_open("role matrix unavailable")
+    roles = matrix.get("roles") or {}
+    if role not in roles:
+        _log_unknown_role(common_dir, role, tool, rel_path or tool)
+        return _fail_open(f"unknown marker role '{role}'")
 
     if tool in FILE_TOOLS:
         entry = _file_entry(matrix, rel_path)
@@ -245,9 +350,8 @@ def _decide(payload):
             return _deny(
                 common_dir, role, tool, rel_path,
                 f"role '{role}' may not {tool} '{rel_path}' "
-                f"({entry.get('class')}) — this role only creates new files "
-                "in its write exceptions; delegate to the owning role via a "
-                "subagent for modifications",
+                f"({entry.get('class')}) — this role may write only its own "
+                "research reports; delegate to the owning role via a subagent",
             )
         if role in (entry.get("coveredBy") or []):
             return 0
