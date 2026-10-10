@@ -1,0 +1,312 @@
+#!/usr/bin/env python3
+"""role-guard — PreToolUse enforcement of the IskInFlow role matrix (spec §4.4).
+
+A thin read-and-decide wrapper: the policy lives in `flow` (ROLE_MATRIX, single
+source) and is read through `flow role matrix --all` as JSON; this script only
+resolves the marker, classifies the tool call, and denies.
+
+Protocol (task 0043 spike decisions a/b, binding):
+  - Registered as a PreToolUse hook in both harnesses. Subagent tool calls DO
+    reach the hook; a non-empty `agent_type` in the stdin payload marks a
+    subagent, so enforcement is skipped entirely (delegation mode: subagents
+    execute under their own role contracts, never under the manager's marker).
+  - Deny = exit code 2 + a one-line stderr message naming the violated rule
+    and the roles to delegate to. Identical semantics in ZCode (stderr becomes
+    the model-visible permissionDecisionReason) and Claude Code (stderr is fed
+    to the model). JSON stdout decisions are not used.
+  - Fail-open: malformed payloads and any internal error exit 0. The guard is
+    accident prevention, never an outage source (spec §4.6.2).
+  - No marker at <git-common-dir>/isk-role -> unrestricted, exit 0 immediately.
+    The common dir is the SHARED main .git, so linked worktrees are covered.
+
+Every deny appends `<timestamp> DENY <role> <tool> <target>` to
+<git-common-dir>/isk-role.log — the same file marker switches land in — so
+the retrospective false-positive review has data.
+
+Python 3 stdlib only. Best-effort by design (spec §4.6.2): Bash parsing is a
+segment allowlist, not adversarial security.
+"""
+
+import datetime as dt
+import fnmatch
+import json
+import os
+import re
+import subprocess
+import sys
+
+FLOW = os.path.join(os.path.dirname(os.path.abspath(__file__)), "flow")
+
+FILE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
+# Tools that MODIFY an existing file. A create-only role (the researcher:
+# "new report files" is its single write exception, spec §3.3) is denied
+# these even on otherwise-allowed paths — it creates, never edits.
+EDIT_TOOLS = ("Edit", "MultiEdit")
+CREATE_ONLY_ROLES = ("researcher",)
+NETWORK_TOOLS = ("WebSearch", "WebFetch")
+MCP_PREFIX = "mcp__"
+
+# Manager mechanical allowlist (spec §3.4/§4.4): framework CLI, framework
+# scripts, tracker shell helpers, and the mechanical git set. `diff` only with
+# --name-only (the manager diffs to enumerate paths, never to read content).
+MANAGER_GIT = {
+    "status", "fetch", "pull", "push", "merge", "rebase", "checkout",
+    "switch", "branch", "worktree", "add", "commit", "log", "show",
+}
+# Researcher read-only set (spec §4.4): read-only git, the code index,
+# text search, trivial readers, memsearch retrieval.
+RESEARCHER_GIT = {"diff", "log", "show"}
+RESEARCHER_READERS = {"ast-index", "grep", "find", "rg", "cat", "ls", "wc"}
+RESEARCHER_MEMSEARCH = {"search", "expand"}
+
+_ENV_PREFIX = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_SEGMENT_SPLIT = re.compile(r"&&|\|\||;|\|")
+
+
+def _fail_open(note):
+    """Exit 0 with a quiet stderr note (non-blocking in both harnesses)."""
+    print(f"role-guard: {note}; failing open", file=sys.stderr)
+    return 0
+
+
+def _project_root():
+    for var in ("CLAUDE_PROJECT_DIR", "ZCODE_PROJECT_DIR"):
+        value = os.environ.get(var)
+        if value and os.path.isdir(value):
+            return os.path.abspath(value)
+    proc = subprocess.run(["git", "rev-parse", "--show-toplevel"],
+                          capture_output=True, text=True)
+    if proc.returncode == 0 and proc.stdout.strip():
+        return proc.stdout.strip()
+    return os.getcwd()
+
+
+def _git_common_dir(root):
+    """The main .git directory (shared by linked worktrees), or None."""
+    proc = subprocess.run(["git", "-C", root, "rev-parse", "--git-common-dir"],
+                          capture_output=True, text=True)
+    if proc.returncode != 0:
+        return None
+    out = proc.stdout.strip()
+    if not out:
+        return None
+    return out if os.path.isabs(out) else os.path.normpath(os.path.join(root, out))
+
+
+def _rel_to_root(path, root):
+    """Repo-relative form of `path` for classification and messages.
+
+    realpath both sides: macOS /tmp (and TMPDIR) are symlinks (/var ->
+    /private/var) while git reports the canonical toplevel — a plain relpath
+    across the symlink yields ../.. and would classify every path as
+    unmatched CODE (the fail-closed default, wrongly denying allowed roles).
+    """
+    absolute = path if os.path.isabs(path) else os.path.join(root, path)
+    rel = os.path.relpath(os.path.realpath(absolute), os.path.realpath(root))
+    return path if rel.startswith("..") else rel
+
+
+def _load_matrix(root, classify=None):
+    """The full matrix (+ per-path classification) from `flow`, or None."""
+    if not os.path.isfile(FLOW):
+        return None
+    cmd = [sys.executable, FLOW, "--root", root, "role", "matrix", "--all"]
+    for rel in classify or []:
+        cmd += ["--classify", rel]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        return json.loads(proc.stdout)
+    except ValueError:
+        return None
+
+
+def _log_deny(common_dir, role, tool, target):
+    """One audit line per deny; log failures never flip a deny into an allow."""
+    try:
+        now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+        with open(os.path.join(common_dir, "isk-role.log"), "a",
+                  encoding="utf-8") as fh:
+            fh.write(f"{now} DENY {role} {tool} {target}\n")
+    except OSError:
+        pass
+
+
+def _deny(common_dir, role, tool, target, message):
+    _log_deny(common_dir, role, tool, target)
+    print(f"role-guard: {message}", file=sys.stderr)
+    return 2
+
+
+def _strip_env_prefix(tokens):
+    while len(tokens) > 1 and _ENV_PREFIX.match(tokens[0]):
+        tokens = tokens[1:]
+    return tokens
+
+
+def _manager_segment_allowed(segment):
+    tokens = _strip_env_prefix(segment.split())
+    if not tokens:
+        return True
+    cmd = tokens[0]
+    if cmd == "flow" or cmd.startswith("IskInFlow/scripts/"):
+        return True
+    if fnmatch.fnmatchcase(cmd, "Tasks/*.sh"):
+        return True
+    if cmd == "git":
+        sub = tokens[1] if len(tokens) > 1 else None
+        if sub in MANAGER_GIT:
+            return True
+        if sub == "diff" and "--name-only" in tokens[2:]:
+            return True
+    return False
+
+
+def _researcher_segment_allowed(segment):
+    tokens = segment.split()
+    if not tokens:
+        return True
+    cmd = tokens[0]
+    if cmd == "git":
+        return len(tokens) > 1 and tokens[1] in RESEARCHER_GIT
+    if cmd in RESEARCHER_READERS:
+        return True
+    if cmd == "memsearch":
+        return len(tokens) > 1 and tokens[1] in RESEARCHER_MEMSEARCH
+    return False
+
+
+def _bash_denied_segment(command, policy):
+    """First policy-violating segment of a compound command, or None. Every
+    segment (split on shell control operators) must match the role policy."""
+    if policy == "manager":
+        allowed = _manager_segment_allowed
+    elif policy == "researcher":
+        allowed = _researcher_segment_allowed
+    else:  # "broad" and anything future-added permissive
+        return None
+    for segment in _SEGMENT_SPLIT.split(command):
+        segment = segment.strip()
+        if segment and not allowed(segment):
+            return segment
+    return None
+
+
+def _file_entry(matrix, rel_path):
+    for entry in matrix.get("classified") or []:
+        if entry.get("path") == rel_path:
+            return entry
+    return None
+
+
+def _decide(payload):
+    agent_type = payload.get("agent_type")
+    if isinstance(agent_type, str) and agent_type.strip():
+        return 0  # spike decision (a): subagent calls bypass the marker
+    tool = payload.get("tool_name")
+    if not isinstance(tool, str) or not tool:
+        return 0
+
+    root = _project_root()
+    common_dir = _git_common_dir(root)
+    if not common_dir:
+        return 0  # not a repository (or git broken): nothing to enforce
+    marker = os.path.join(common_dir, "isk-role")
+    if not os.path.isfile(marker):
+        return 0  # absent marker = unrestricted (non-workflow sessions)
+    with open(marker, "r", encoding="utf-8") as fh:
+        role = fh.read().strip()
+    if not role:
+        return 0
+
+    classify = None
+    rel_path = None
+    if tool in FILE_TOOLS:
+        tool_input = payload.get("tool_input")
+        file_path = tool_input.get("file_path") if isinstance(tool_input, dict) else None
+        if not isinstance(file_path, str) or not file_path:
+            return 0  # cannot classify -> fail open
+        rel_path = _rel_to_root(file_path, root)
+        classify = [rel_path]
+
+    matrix = _load_matrix(root, classify)
+    if not isinstance(matrix, dict) or role not in (matrix.get("roles") or {}):
+        return _fail_open("role matrix unavailable or marker role unknown")
+
+    if tool in FILE_TOOLS:
+        entry = _file_entry(matrix, rel_path)
+        if entry is None:
+            return _fail_open("path classification missing")
+        if role in CREATE_ONLY_ROLES and tool in EDIT_TOOLS:
+            return _deny(
+                common_dir, role, tool, rel_path,
+                f"role '{role}' may not {tool} '{rel_path}' "
+                f"({entry.get('class')}) — this role only creates new files "
+                "in its write exceptions; delegate to the owning role via a "
+                "subagent for modifications",
+            )
+        if role in (entry.get("coveredBy") or []):
+            return 0
+        delegates = [r for r in entry.get("coveredBy") or [] if r != role]
+        target = "/".join(delegates) if delegates \
+            else "the role that owns this path"
+        return _deny(
+            common_dir, role, tool, rel_path,
+            f"role '{role}' may not {tool} '{rel_path}' ({entry.get('class')}) "
+            f"— delegate to {target} via a subagent",
+        )
+
+    if tool == "Bash":
+        tool_input = payload.get("tool_input")
+        command = tool_input.get("command") if isinstance(tool_input, dict) else None
+        if not isinstance(command, str) or not command:
+            return 0
+        policy = matrix["roles"][role].get("bash") or "broad"
+        segment = _bash_denied_segment(command, policy)
+        if segment is None:
+            return 0
+        if policy == "manager":
+            rule = "outside the manager mechanical allowlist (flow, " \
+                   "IskInFlow/scripts/*, Tasks/*.sh, mechanical git)"
+        else:
+            rule = "outside the researcher read-only allowlist (git " \
+                   "diff/log/show, ast-index, grep/find/rg, cat/ls/wc, " \
+                   "memsearch search/expand)"
+        return _deny(
+            common_dir, role, "Bash", segment,
+            f"role '{role}' may not Bash '{segment}' ({rule}) "
+            "— delegate to coder via a subagent",
+        )
+
+    if tool in NETWORK_TOOLS or tool.startswith(MCP_PREFIX):
+        if matrix["roles"][role].get("network") == "allow":
+            return 0
+        return _deny(
+            common_dir, role, tool, tool,
+            f"role '{role}' may not {tool} (network tools are denied for "
+            "this role, spec §4.4 network row) "
+            "— delegate to researcher/coder/planner via a subagent",
+        )
+
+    return 0  # Read and every unlisted tool: always allow (spec §4.4)
+
+
+def main():
+    try:
+        payload = json.load(sys.stdin)
+    except Exception:
+        return 0  # malformed payload -> fail open
+    if not isinstance(payload, dict):
+        return 0
+    try:
+        return _decide(payload)
+    except Exception as exc:  # never break the tool call on an internal error
+        return _fail_open(f"internal error ({exc.__class__.__name__})")
+
+
+if __name__ == "__main__":
+    sys.exit(main())

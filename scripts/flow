@@ -15,7 +15,8 @@ Subcommands:
   note        Append a checkpoint entry to a lock's history without moving
               workStage (progress notes; task 0043 item 7).
   check-push  Pre-push gate for ai/* branches (lock present, stage known, artifacts exist).
-  role        Show/set/log the active role marker (<git-common-dir>/isk-role).
+  role        Show/set/log the active role marker (<git-common-dir>/isk-role);
+              print the role-guard matrix as JSON (`flow role matrix`).
   archive     Move a MERGED+COMPLETED lock to .task-locks/completed/ with a
               scoped archival commit.
   metrics     Lead time / rework statistics from completed locks.
@@ -126,6 +127,44 @@ DEFAULT_PATH_CLASSES = {
         "workflow/**", "skills/**",
         "!IskInFlow/scripts/**", "IskInFlow/**",
     ],
+}
+
+# Role-guard matrix (spec §4.4/§4.5) — the single source the role-guard hook
+# reads (`flow role matrix`); the hook is a thin read-and-decide wrapper.
+# Per role:
+#   writeClasses  host path classes the role may write (see DEFAULT_PATH_CLASSES;
+#                 "code" is the unmatched-default class)
+#   writePatterns repo-relative glob grants, class-independent (`*` stays within
+#                 one segment, `**` spans segments) — narrower than a class
+#                 (planner's Docs/packages/**) or spanning classes (.task-locks)
+#   bash          command policy: "manager" (mechanical allowlist), "researcher"
+#                 (read-only set), or "broad" (mutations allowed, §4.4)
+#   network       "allow"/"deny" for WebSearch/WebFetch/mcp__* (§4.4 network row)
+ROLE_MATRIX = {
+    "manager":       {"writeClasses": [],
+                      "writePatterns": [],
+                      "bash": "manager", "network": "deny"},
+    "planner":       {"writeClasses": [],
+                      "writePatterns": ["Docs/packages/**"],
+                      "bash": "broad", "network": "allow"},
+    "coder":         {"writeClasses": ["code"],
+                      "writePatterns": [".task-locks/**"],
+                      "bash": "broad", "network": "allow"},
+    "tech_writer":   {"writeClasses": ["docs"],
+                      "writePatterns": ["Tasks/**", ".task-locks/**"],
+                      "bash": "broad", "network": "deny"},
+    "researcher":    {"writeClasses": [],
+                      "writePatterns": [".task-locks/artifacts/*/research-*.md"],
+                      "bash": "researcher", "network": "allow"},
+    "code_reviewer": {"writeClasses": [],
+                      "writePatterns": [".task-locks/**"],
+                      "bash": "broad", "network": "deny"},
+    "qa_engineer":   {"writeClasses": [],
+                      "writePatterns": [".task-locks/**"],
+                      "bash": "broad", "network": "deny"},
+    "reflector":     {"writeClasses": ["skills"],
+                      "writePatterns": [".task-locks/**", ".memsearch/memory/**"],
+                      "bash": "broad", "network": "deny"},
 }
 
 _GLOB_CACHE = {}
@@ -302,6 +341,15 @@ def path_class(path, classes=None):
                     break  # excluded from this class; try the next one
                 return name
     return "code"
+
+
+def role_write_allowed(role, klass, rel_path):
+    """May `role` write `rel_path`? True when the path's class is one of the
+    role's writeClasses or one of its writePatterns matches the path."""
+    entry = ROLE_MATRIX[role]
+    if klass in entry["writeClasses"]:
+        return True
+    return any(_glob_regex(p).match(rel_path) for p in entry["writePatterns"])
 
 
 def derive_surface(paths, classes=None):
@@ -1028,6 +1076,53 @@ def cmd_role(args):
     return 0
 
 
+def cmd_role_matrix(args):
+    """Print the role-guard matrix as JSON (spec §4.4: single source; the
+    role-guard hook is a thin read-and-decide wrapper over this output).
+
+    `matrix <role> [--classify PATH]...` prints one role's entry with, per
+    classified path, its class and whether the role may write it.
+    `matrix --all [--classify PATH]...` prints every role plus, per path, the
+    roles that may write it (coveredBy) — one subprocess call for the guard.
+    Marker- and git-independent: works outside a repository with --root.
+    """
+    if args.all and args.role_name:
+        print("flow role matrix: give a role or --all, not both", file=sys.stderr)
+        return 1
+    if not args.all and not args.role_name:
+        print(f"flow role matrix: specify a role ({', '.join(ROLES)}) or --all",
+              file=sys.stderr)
+        return 1
+    if args.role_name and args.role_name not in ROLES:
+        print(f"flow role: unknown role {args.role_name!r} "
+              f"(valid: {', '.join(ROLES)})", file=sys.stderr)
+        return 1
+
+    classes = load_path_classes(find_repo_root(args.root))
+    classified = []
+    for raw in args.classify:
+        klass = path_class(raw, classes)
+        entry = {"path": raw, "class": klass}
+        if args.all:
+            entry["coveredBy"] = [r for r in ROLES
+                                  if role_write_allowed(r, klass, raw)]
+        else:
+            entry["writeAllowed"] = role_write_allowed(args.role_name, klass, raw)
+        classified.append(entry)
+
+    if args.all:
+        out = {"roles": {r: ROLE_MATRIX[r] for r in ROLES}}
+        if classified:
+            out["classified"] = classified
+    else:
+        out = dict(ROLE_MATRIX[args.role_name])
+        out["role"] = args.role_name
+        if classified:
+            out["classified"] = classified
+    print(json.dumps(out, indent=2, ensure_ascii=False))
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # archive (lock retirement)
 # ---------------------------------------------------------------------------
@@ -1351,6 +1446,18 @@ def main(argv=None):
     rp.set_defaults(func=cmd_role)
     rp = role_sub.add_parser("log", help="print the role switch log (or 'empty')")
     rp.set_defaults(func=cmd_role)
+    rp = role_sub.add_parser("matrix",
+                             help="print the role-guard matrix as JSON "
+                                  "(write classes/patterns, bash policy, "
+                                  "network policy)")
+    rp.add_argument("role_name", nargs="?",
+                    help=f"one of: {', '.join(ROLES)} (omit with --all)")
+    rp.add_argument("--all", action="store_true",
+                    help="print the matrix for every role (+ coveredBy per "
+                         "classified path)")
+    rp.add_argument("--classify", action="append", default=[], metavar="PATH",
+                    help="classify a repo-relative path (repeatable)")
+    rp.set_defaults(func=cmd_role_matrix)
 
     p = sub.add_parser("archive", help="move a MERGED+COMPLETED lock to "
                                        ".task-locks/completed/ with a scoped commit")
