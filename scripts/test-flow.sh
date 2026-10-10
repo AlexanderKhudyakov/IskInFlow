@@ -15,6 +15,10 @@
 #                      --force waiver downgrade, shape errors, legacy unchanged
 #   7. archive       — move + scoped archival commit, refusal off-MERGED
 #   8. role          — marker write/show, log append, invalid role, non-repo
+#   9. note          — checkpoint history entries (task 0043 item 7; 0042
+#                      acceptance carry-over): append-only, workStage preserved,
+#                      "checkpoint": true, refusals (missing/unparseable lock,
+#                      non-repo), validate still green
 #
 # Python 3 stdlib + git only. Portable bash 3.2 (no associative arrays, no
 # ${var,,}); every scenario runs against throwaway mktemp fixtures.
@@ -878,6 +882,49 @@ run_flow_in "$NR" role show
 assert_refused "role show outside a git repo errors"
 assert_not_contains "  no traceback" "$ERR" "Traceback"
 assert_contains "  names the problem" "$ERR" "git"
+
+# ---------------------------------------------------------------------------
+section "9. note — checkpoint history entries (append-only)"
+# ---------------------------------------------------------------------------
+
+R="$(make_repo)"; LK="$R/.task-locks/9300.lock.json"
+run_flow --root "$R" new 9300 --agent mgr
+run_flow transition "$LK" IMPLEMENTATION_COMPLETE --agent dev
+run_flow note "$LK" --text "progress: guard matrix implemented, suite red" --agent coder
+assert_ok "note appends a checkpoint entry"
+assert_json "  entry carries checkpoint: true" "$LK" \
+  'lock["history"][-1]["checkpoint"]' 'true'
+assert_json "  entry records the text as reason" "$LK" \
+  'lock["history"][-1]["reason"]' '"progress: guard matrix implemented, suite red"'
+assert_json "  entry records the agentId" "$LK" \
+  'lock["history"][-1]["agentId"]' '"coder"'
+assert_json "  fromStage == toStage (no stage move)" "$LK" \
+  'lock["history"][-1]["fromStage"] == lock["history"][-1]["toStage"]' 'true'
+assert_json "  workStage unchanged" "$LK" 'lock["workStage"]' '"IMPLEMENTATION_COMPLETE"'
+assert_json "  status unchanged" "$LK" 'lock["status"]' '"ACTIVE"'
+assert_json "  history grew by exactly one" "$LK" 'len(lock["history"])' '3'
+
+run_flow validate "$LK"
+assert_ok "validate accepts the checkpoint key (additive schema)"
+
+# Refusals mirror the other subcommands' error style.
+run_flow note "$R/.task-locks/nope.lock.json" --text x --agent coder
+assert_refused "missing lock refuses"
+assert_contains "  names the missing file" "$ERR" "not found"
+
+printf '{not json' >"$R/.task-locks/broken.lock.json"
+run_flow note "$R/.task-locks/broken.lock.json" --text x --agent coder
+assert_refused "unparseable lock refuses"
+assert_contains "  names the JSON problem" "$ERR" "unparseable"
+
+NG="$TMP/nogit-note"
+mkdir -p "$NG/.task-locks"
+printf '{"taskId": "nn", "status": "ACTIVE", "workStage": "IMPLEMENTATION_STARTED", "history": []}\n' \
+  >"$NG/.task-locks/nn.lock.json"
+run_flow note "$NG/.task-locks/nn.lock.json" --text x --agent coder
+assert_refused "lock outside a git repository refuses"
+assert_contains "  names the repository problem" "$ERR" "not inside a git repository"
+assert_not_contains "  no traceback" "$ERR" "Traceback"
 
 # ---------------------------------------------------------------------------
 printf '\n=== summary ===\n'
