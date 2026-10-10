@@ -49,10 +49,15 @@ instead of guessing.
    script is missing (enforcement is accident prevention, never an outage
    source) — registered in both `.zcode/config.json` and
    `.claude/settings.json` with the tool matcher
-   `Edit|Write|MultiEdit|NotebookEdit|Bash|WebSearch|WebFetch|mcp__`;
-   registrations must stay in sync across harness configs (KVGA's sync
-   rule: `.agents/rules/shared-agent-config.md`, checked by
-   `.agents/check-links.sh`). Marker mechanics: the guard reads
+   `Edit|Write|MultiEdit|NotebookEdit|Bash|WebSearch|WebFetch|mcp__.*`
+   (a matcher of only letters, digits, underscore, and pipe is exact-matched
+   by both harnesses, so a bare `mcp__` alternative would match no tool name;
+   the `.*` pushes the string onto the unanchored-regex path, where
+   `mcp__.*` matches every MCP tool); registrations must stay in sync
+   across harness configs — a procedural obligation per KVGA's sync rule
+   `.agents/rules/shared-agent-config.md` (`.agents/check-links.sh` checks
+   the symlink layer those registration commands rely on, not registration
+   parity itself). Marker mechanics: the guard reads
    `<git-common-dir>/isk-role`; an absent marker means unrestricted
    (non-workflow sessions and humans are never policed). A non-empty
    `agent_type` in the hook payload (a subagent call) bypasses enforcement
@@ -77,6 +82,11 @@ own registration surface:
 | Workflow gates | `pre-push` hook (harness-independent, plain git) | same hook |
 | Skills | `.claude/skills` symlink | `.zcode/skills` symlink |
 | Enforcement layer | L1 role-guard (PreToolUse) + L2 `tools:` frontmatter on `.claude/agents/*.md` | L1 role-guard (PreToolUse, after the trust gate approves the hook); executors L0-by-bypass (`agent_type` in the payload skips the guard) |
+
+(The enforcement layer enters this table as a **row** — a deliberate
+letter-deviation from spec §6, which words it as a new "column": this
+table's columns are the harnesses, so a row with per-harness cells is the
+equivalent presentation.)
 
 The pre-push gate is harness-independent by construction: it is a git hook, so
 every harness (and every human) pushing `ai/*` branches gets the same
