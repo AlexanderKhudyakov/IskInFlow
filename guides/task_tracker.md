@@ -27,7 +27,8 @@ into `task.md`.
 - The **quick lane** (`commands/quick_task.md`) plans work as a tracker task
   (`Tasks/NNNN-<slug>/task.md` is the planning artifact). Locks and pipeline
   artifacts (review, QA, reflection) still live in `.task-locks/`. When work
-  starts, the task's `branch:` and `lock:` fields are filled in.
+  starts, the task's `branch:` and `lock:` fields are filled in (by a
+  tech_writer round or script — the Manager triggers, never hand-edits).
 - The **full lane** (`start_or_continue_next_task`) keeps its planning
   artifacts in development plans; the tracker task holds the registry entry
   and links the plan via `spec:`. The registry entry is created at task
@@ -35,6 +36,16 @@ into `task.md`.
   and `done` when the user accepts the result.
 - Historical `qt-` briefs and numbered plan tasks are legacy; they are not
   migrated forcibly.
+
+### Authorship
+
+Task files are authored and updated only by the roles that own the docs
+surface — **tech_writer rounds** — or by **host scripts** (`Tasks/new.sh`
+creates entries from the template; `Tasks/validate.sh` checks them). The
+**Manager triggers** creation and updates — it runs `Tasks/new.sh`, dispatches
+the tech_writer round, verifies the result — but never hand-edits tracker
+files (delegation contract: [`roles/manager.md`](../roles/manager.md)). Any
+agent may propose task content; authorship flows through the owning role.
 
 ## Layout
 
