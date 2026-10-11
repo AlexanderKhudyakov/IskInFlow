@@ -722,12 +722,58 @@ def cmd_new(args):
     return 0
 
 
+_FU_MARKER_RE = re.compile(r"- \[ \]")
+_FU_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
+# Closed-followups convention (task 0045 item 6; 0042 acceptance): a box whose
+# whole item text is struck through marks the finding closed/superseded —
+# without claiming completion the way `- [x]` does. The struck core is a
+# single fragment (no `~~` inside — GFM would end the strike there, so
+# multi-fragment lines stay open) and may be followed by a parenthetical
+# annotation, e.g.
+#   - [ ] ~~finding: matcher regex path~~ (fixed in IskInFlow 3184125)
+_FU_CLOSED_RE = re.compile(r"^~~(?:(?!~~).)+~~\s*(?:\(.*\))?\s*$")
+
+
+def _fu_open_item_lines(lines):
+    """Yield 1-based line numbers carrying an open `- [ ]` follow-up item.
+
+    Markdown-aware: fenced code blocks (``` / ~~~, tracked across lines) and
+    inline code spans hold prose or code, never items. Within a line only the
+    first in-prose marker decides: fully struck-through item text closes the
+    box; a partially struck or unstruck box stays open.
+    """
+    fence = ""  # opening fence character while inside a fenced block
+    for lineno, line in enumerate(lines, 1):
+        fence_match = _FU_FENCE_RE.match(line)
+        if fence:
+            # Closing fence: a line of only the opening fence character (3+).
+            stripped = line.strip()
+            if stripped and set(stripped) == {fence} and len(stripped) >= 3:
+                fence = ""
+            continue
+        if fence_match:
+            fence = fence_match.group(1)[0]
+            continue
+        # Blank out inline code spans (odd backtick-delimited segments) while
+        # preserving offsets, so a prose mention like "scans for `- [ ]`"
+        # never reads as an item.
+        segments = line.split("`")
+        masked = "".join(
+            segment if index % 2 == 0 else " " * len(segment)
+            for index, segment in enumerate(segments)
+        )
+        marker = _FU_MARKER_RE.search(masked)
+        if marker and not _FU_CLOSED_RE.match(line[marker.end():].strip()):
+            yield lineno
+
+
 def _unresolved_followups(lock_path, lock):
-    """Markdown lines with unchecked `- [ ]` items in the task's artifacts.
+    """Markdown lines with unresolved `- [ ]` items in the task's artifacts.
 
     Used by the MERGED gate: actionable follow-ups must be fixed (checkbox
-    flipped by the coder's fix commit) before the task merges — guides/pipeline.md
-    "Follow-up policy (no deferred problems)".
+    flipped by the coder's fix commit) or closed via the struck-through
+    convention (superseded findings — see `_fu_open_item_lines`) before the
+    task merges — guides/pipeline.md "Follow-up policy (no deferred problems)".
     """
     task_id = str(lock.get("taskId") or "")
     if not task_id:
@@ -741,9 +787,9 @@ def _unresolved_followups(lock_path, lock):
             continue
         art_path = os.path.join(artifacts_dir, name)
         with open(art_path, encoding="utf-8") as fh:
-            for lineno, line in enumerate(fh, 1):
-                if re.search(r"- \[ \]", line):
-                    open_items.append(f"{name}:{lineno}")
+            open_items.extend(
+                f"{name}:{lineno}" for lineno in _fu_open_item_lines(fh)
+            )
     return open_items
 
 
@@ -801,9 +847,11 @@ def cmd_transition(args):
             print(
                 "flow transition: MERGED refused — unresolved follow-ups "
                 f"(`- [ ]`) in {open_items[0].rsplit(':', 1)[0]}/: "
-                f"{', '.join(open_items)}. Return them to the surface-owning "
-                "role (coder for code findings, tech_writer for docs findings "
-                "— guides/pipeline.md 'Follow-up policy (no deferred "
+                f"{', '.join(open_items)}. Strike the item text to close a "
+                "superseded box (`- [ ] ~~item~~ (note)` counts as closed) "
+                "or return it to the surface-owning role (coder for code "
+                "findings, tech_writer for docs findings — "
+                "guides/pipeline.md 'Follow-up policy (no deferred "
                 "problems)'); --force is allowed only with a user waiver "
                 "recorded in history.",
                 file=sys.stderr,

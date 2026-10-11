@@ -175,6 +175,12 @@ permitted.
 - Follow-ups are tracked as `- [ ]` checkboxes in the task's artifacts
   (`.task-locks/artifacts/<task-id>/*.md`); the owning role's fix commit
   flips them to `- [x]` **in the same task**.
+- **Closing a box without completing it**: strike the whole item text —
+  `- [ ] ~~finding: matcher regex path~~ (fixed in IskInFlow 3184125)` — for
+  findings resolved elsewhere or superseded; the gate counts it closed.
+  Partial strikethrough does **not** close a box, and markers inside fenced
+  code blocks or inline code spans are prose, not items; the refusal message
+  prints the closure form (`- [ ] ~~item~~ (note)` counts as closed).
 - `flow transition … MERGED` refuses while the artifacts still contain
   unchecked `- [ ]` items. `--force` overrides; a forced merge MUST record the
   user's waiver in the lock history (`reason: "user waived: …"`).
