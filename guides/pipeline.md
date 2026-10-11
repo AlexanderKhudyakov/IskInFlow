@@ -180,7 +180,7 @@ permitted.
   findings resolved elsewhere or superseded; the gate counts it closed.
   Partial strikethrough does **not** close a box, and markers inside fenced
   code blocks or inline code spans are prose, not items; the refusal message
-  prints the canonical grammar.
+  prints the closure form (`- [ ] ~~item~~ (note)` counts as closed).
 - `flow transition … MERGED` refuses while the artifacts still contain
   unchecked `- [ ]` items. `--force` overrides; a forced merge MUST record the
   user's waiver in the lock history (`reason: "user waived: …"`).

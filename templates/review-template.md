@@ -9,11 +9,13 @@
 **Review Kind**: [code / docs / mixed — set by the diff surface (guides/pipeline.md staffing matrix); `docs` and `mixed` carry the Docs Review Checklist below]
 **Status**: [APPROVED / REQUEST_CHANGES / COMMENT]
 
-> **Checkbox rule (all review kinds)**: the MERGED gate refuses while any
-> artifact still contains an unchecked `- [ ]` (`guides/pipeline.md`
-> "Follow-up policy"). Tick what you verified; **delete** every checkbox and
-> section the Review Kind makes inapplicable — never leave them unchecked. A
-> completed review artifact ends with zero unchecked boxes.
+> **Checkbox rule (all review kinds)**: the MERGED gate refuses on open
+> `- [ ]` items (`guides/pipeline.md` "Follow-up policy"); a
+> strikethrough-wrapped item (`- [ ] ~~...~~ (note)`) counts closed, and
+> markers inside code fences or inline code spans are not items. Tick what
+> you verified; **delete** every checkbox and section the Review Kind makes
+> inapplicable — never leave them unchecked. A completed review artifact
+> ends with zero unchecked boxes.
 
 ## Summary
 
