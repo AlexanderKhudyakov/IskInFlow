@@ -27,9 +27,11 @@ instead of guessing.
    this path; override only by forking the scripts.
 4. **Task tracker** — `Tasks/` at the repository root: one folder per task,
    format defined in [`guides/task_tracker.md`](guides/task_tracker.md). All
-   new tasks (including quick-lane ones) are registered here; the host
-   provides `Tasks/new.sh` + `Tasks/validate.sh` helpers and wires the
-   validator into its pre-commit hook.
+   new tasks (including quick-lane ones) are registered here; the framework
+   provides the tooling (`scripts/tracker-new.sh`, `scripts/tracker-validate.sh`,
+   `scripts/tracker-tests.sh` — task 0055), the host keeps tracked
+   `Tasks/*.sh` shims as entry points and wires the validator into its
+   pre-commit hook.
 5. **Quality tooling declaration** — the host's root instructions must state
    the test command(s), linter, and build entry points the Coder and QA roles
    run. IskInFlow defines *who* runs them and *when*; the host defines *what*

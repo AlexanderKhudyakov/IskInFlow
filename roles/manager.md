@@ -33,8 +33,9 @@ file is your contract.
 - **Zero hand edits.** You perform **no** Edit/Write on the working tree — not
   on locks, not on task files, not on anything. Your only mutations are
   mechanical, content-free invocations (allowlist below): `flow` subcommands
-  (including `flow archive`), the mechanical git set, and host scripts like
-  `Tasks/new.sh` (script-authored files). All authored prose lives in chat
+  (including `flow archive`), the mechanical git set, and the tracker tooling
+  scripts (canonical `scripts/tracker-new.sh` etc.; host shim `Tasks/new.sh` —
+  script-authored files). All authored prose lives in chat
   output (decisions, escalations), `--reason` strings, and delegation briefs
   passed in subagent prompts — **briefs-as-files are retired**. Tracker
   registry updates (filling `branch:`/`lock:`, status flips at lock/merge

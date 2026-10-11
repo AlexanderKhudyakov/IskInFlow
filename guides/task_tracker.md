@@ -45,22 +45,23 @@ into `task.md`.
 ### Authorship
 
 Task files are authored and updated only by the roles that own the docs
-surface — **tech_writer rounds** — or by **host scripts** (`Tasks/new.sh`
-creates entries from the template; `Tasks/validate.sh` checks them). The
-**Manager triggers** creation and updates — it runs `Tasks/new.sh`, dispatches
-the tech_writer round, verifies the result — but never hand-edits tracker
-files (delegation contract: [`roles/manager.md`](../roles/manager.md)). Any
-agent may propose task content; authorship flows through the owning role.
+surface — **tech_writer rounds** — or by **scripts** (this repo's
+`scripts/tracker-new.sh` creates entries from the template;
+`scripts/tracker-validate.sh` checks them; hosts invoke both through thin
+`Tasks/*.sh` shims). The **Manager triggers** creation and updates — it runs
+the creation script, dispatches the tech_writer round, verifies the result —
+but never hand-edits tracker files (delegation contract:
+[`roles/manager.md`](../roles/manager.md)). Any agent may propose task
+content; authorship flows through the owning role.
 
 ## Layout
 
 ```
 Tasks/
 ├── README.md            ← host cheat sheet (links here)
-├── new.sh               ← create a task (next id + template)
-├── validate.sh          ← format validation (run by hand, pre-commit, pre-push)
-├── tests.sh             ← regression tests for the validator
-├── _template/task.md    ← host copy of this repo's templates/tracker-task-template.md
+├── new.sh               ← thin shim → scripts/tracker-new.sh
+├── validate.sh          ← thin shim → scripts/tracker-validate.sh
+├── tests.sh             ← thin shim → scripts/tracker-tests.sh
 ├── 0001-<slug>/         ← one task = one folder
 │   ├── task.md          ← the only mandatory file
 │   ├── attachments/     ← optional, created when needed
@@ -69,10 +70,22 @@ Tasks/
 └── 0002-<slug>/…
 ```
 
+The maintenance tooling is part of this framework, not the registry (task
+0055 moved it out of the host's `Tasks/` directory — executable code belongs
+to the CODE surface, the registry stays prose/data):
+`scripts/tracker-new.sh`, `scripts/tracker-validate.sh`,
+`scripts/tracker-tests.sh` live in this repo. The tracked `Tasks/*.sh` shims
+keep the historical entry points working (every pushed tree carries a
+runnable validator) and resolve the canonical scripts: the host checkout's
+nested IskInFlow clone first, then the host's tracked
+`Tools/hooks/lib/tracker-validate.sh` mirror.
+
 The canonical task template is
 [`templates/tracker-task-template.md`](../templates/tracker-task-template.md)
-in this repo; hosts copy it to `Tasks/_template/task.md` (that is where
-`new.sh` reads it).
+in this repo — `tracker-new.sh` reads it directly (env `TASKS_TEMPLATE`
+overrides; a legacy host copy at `Tasks/_template/task.md` is still honored
+as a last resort). There is no separate host copy to keep in sync — task
+0055 retired it after verifying it was byte-identical.
 
 Naming rules:
 
@@ -82,15 +95,15 @@ Naming rules:
   plain in the **`id` field** (`8` — leading zeros can parse as octal in
   YAML 1.1, e.g. `0010` → 8).
 - Ids are sequential, monotonically growing, **never reused**. Next id =
-  max existing + 1 (`new.sh` does this). Tracker ids are independent of any
-  historical numbering (plan-task locks, `qt-` names).
+  max existing + 1 (`tracker-new.sh` does this). Tracker ids are independent
+  of any historical numbering (plan-task locks, `qt-` names).
 - Task folders are **never deleted**: finished or abandoned work closes via
   `done` / `cancelled` (deleting a folder silently frees its id for reuse —
-  `new.sh` takes max-existing + 1). Archival needs are met by the task's own
-  record, not by removal.
+  `tracker-new.sh` takes max-existing + 1). Archival needs are met by the
+  task's own record, not by removal.
 - Numbering caps: task ids run 0001–9999, comments 001–999 per task — the
   4-digit folder / 3-digit comment name patterns are the format's ceiling
-  (`new.sh` refuses to go past 9999).
+  (`tracker-new.sh` refuses to go past 9999).
 - Lock naming: tracker locks are `<NNNN>.lock.json` (4-digit, keyed to the
   tracker id) and deliberately coexist with legacy unpadded plan locks
   (`263.lock.json`) — padding prevents filename collisions, but number-based
@@ -166,10 +179,10 @@ until acceptance. At `done`, `## Критерии готовности` must not
 unchecked `- [ ]` items — closing with an open checkbox of one's own plan
 is rejected.
 
-Adding a new type means editing **three places**: this guide, the host's
-`new.sh` (type whitelist), and the host's `validate.sh` (enum + per-type body
-sections) — plus `templates/tracker-task-template.md` here if new body
-sections appear (hosts refresh their `Tasks/_template/` copy).
+Adding a new type means editing **three places**: this guide,
+`scripts/tracker-new.sh` (type whitelist), and `scripts/tracker-validate.sh`
+(enum + per-type body sections) — plus `templates/tracker-task-template.md`
+here if new body sections appear (no host copies to refresh).
 
 ## Statuses and transitions
 
@@ -230,22 +243,24 @@ externally (Cloud, iCloud) in the description or a comment.
 
 ## Tooling
 
-The host provides:
+The maintenance tooling is part of this framework (task 0055 moved it out of
+the host's registry directory); hosts keep thin `Tasks/*.sh` shims as the
+stable entry points and wire it into their hooks:
 
-- a copy of [`templates/tracker-task-template.md`](../templates/tracker-task-template.md)
-  at `Tasks/_template/task.md`;
-- `Tasks/new.sh <type> <slug> ["Title"]` — creates the next-numbered task from
-  the template;
-- `Tasks/validate.sh [folder…]` — format gate: folder/file structure, task
-  and comment frontmatter (schema — unknown keys rejected, enums,
-  cross-field rules), per-type body sections and their timing, reference
-  integrity of `blocked-by` / `relates-to` (including cycles), calendar
-  dates, comment numbering. **The detailed, canonical checklist lives in
-  the header comment of the script itself** (`head Tasks/validate.sh`);
-  docs keep only this summary to avoid drift. Regression tests:
-  `Tasks/tests.sh` (sandboxed — never touches the real tracker); the host's
-  pre-commit runs them automatically whenever the validator itself changes.
-  Hosts wire it into the pre-commit hook (trigger on staged `Tasks/` paths).
+- `scripts/tracker-new.sh <type> <slug> ["Title"]` (host shim
+  `Tasks/new.sh`) — creates the next-numbered task from the canonical
+  template;
+- `scripts/tracker-validate.sh [folder…]` (host shim `Tasks/validate.sh`) —
+  format gate: folder/file structure, task and comment frontmatter (schema —
+  unknown keys rejected, enums, cross-field rules), per-type body sections
+  and their timing, reference integrity of `blocked-by` / `relates-to`
+  (including cycles), calendar dates, comment numbering. **The detailed,
+  canonical checklist lives in the header comment of the script itself**
+  (`head scripts/tracker-validate.sh`); docs keep only this summary to avoid
+  drift.
+- `scripts/tracker-tests.sh` (host shim `Tasks/tests.sh`) — regression tests
+  (sandboxed — never touches the real tracker); the host's pre-commit runs
+  them automatically whenever the validator itself changes.
 
 Mechanical limits (known, deliberate): the hooks are opt-in (`git config
 core.hooksPath Tools/hooks` per clone) and `--no-verify` bypasses them.
@@ -261,10 +276,16 @@ are not gated. Field formats beyond the stated checks are prose:
 non-empty at research `done`), and dates are calendar-checked but may lie in
 the future. Degrade-on-absence: if a pushed tree has tasks but no runnable
 `Tasks/validate.sh` (removed or non-executable), the hook gates downgrade to
-a WARN instead of failing — deliberate, so archived trees stay pushable; and
-the deletion gate protects task folders only, not the tracker's service
-files (the validator itself is not deletion-protected). Nested fences
-(```` inside ```) are not supported by the fence stripper.
+a WARN instead of failing — deliberate, so archived trees stay pushable.
+Since the shim is tracked (task 0055), every pushed tree with a registry
+carries a runnable validator: the shim resolves the canonical logic from the
+host checkout (nested clone first, then the tracked
+`Tools/hooks/lib/tracker-validate.sh` mirror), passing its own directory as
+`TASKS_DIR` so the pushed tree's data is what gets validated; only when
+neither copy exists does the shim itself degrade to the same WARN. The
+deletion gate protects task folders only, not the tracker's service files
+(the validator itself is not deletion-protected). Nested fences (````
+inside ```) are not supported by the fence stripper.
 
 ## Query recipes
 
