@@ -30,6 +30,11 @@
 #                      classification derives from the merge commit's
 #                      first-parent diff, ff-absorbed branches refuse "too
 #                      late" (never a NONE mismatch)
+#  12. metrics      — docs_only flag follows the lock surface (task 0054):
+#                      changeSurface, else roles.predicted.surface; SKIPPED
+#                      stages are gate evidence, not a surface, and no longer
+#                      force the flag; legacy locks keep the SKIPPED
+#                      heuristic; the report shows the surface
 #
 # Python 3 stdlib + git only. Portable bash 3.2 (no associative arrays, no
 # ${var,,}); every scenario runs against throwaway mktemp fixtures.
@@ -1260,6 +1265,72 @@ run_flow transition "$R/.task-locks/w1.lock.json" MERGED --agent ref --force --r
 assert_ok "--force still bypasses the follow-up gate"
 assert_json "  MERGED recorded despite the open box" \
   "$R/.task-locks/w1.lock.json" 'lock["history"][-1]["toStage"]' '"MERGED"'
+
+# ---------------------------------------------------------------------------
+section "11. metrics — docs_only flag follows surface, not SKIPPED stages (0054)"
+# ---------------------------------------------------------------------------
+
+# Task 0054: docs_only is a property of the change surface — changeSurface,
+# else roles.predicted.surface. SKIPPED stages are gate evidence (--force
+# waivers on CODE tasks, NONE-surface skips), not a surface. Pre-v2 locks
+# without the v2 fields keep the legacy SKIPPED heuristic. The report shows
+# the surface the flag was derived from.
+
+run_metrics_json() { # run_metrics_json <locks-dir> — JSON metrics against a scratch repo
+  R="$(make_repo)"
+  run_flow --root "$R" metrics --dir "$1" --json
+}
+
+# The defect shape: CODE lock (changeSurface CODE) whose history carries a
+# --force review waiver (CODE_REVIEW_SKIPPED) — must NOT be docs_only.
+MD="$TMP/met1"; mkdir -p "$MD"
+synth_lock "$MD/m1.lock.json" '{"taskId": "9001", "changeSurface": "CODE", "roles": {"predicted": {"surface": "CODE"}, "actual": null}, "history": [
+  {"timestamp": "2026-10-09T10:00:00+00:00", "fromStage": null, "toStage": "IMPLEMENTATION_STARTED", "agentId": "t", "reason": "lock acquired"},
+  {"timestamp": "2026-10-09T11:00:00+00:00", "fromStage": "IMPLEMENTATION_COMPLETE", "toStage": "CODE_REVIEW_SKIPPED", "agentId": "t", "reason": "force waiver", "forced": true},
+  {"timestamp": "2026-10-09T12:00:00+00:00", "fromStage": "REFLECTION_COMPLETE", "toStage": "MERGED", "agentId": "t", "reason": "merged"}]}'
+run_metrics_json "$MD"
+assert_contains "CODE lock with SKIPPED transition is not docs_only" "$OUT" '"docs_only": false'
+assert_contains "  report surfaces the derived surface" "$OUT" '"surface": "CODE"'
+
+# DOCS via changeSurface is docs_only — with no SKIPPED stage in history.
+MD="$TMP/met2"; mkdir -p "$MD"
+synth_lock "$MD/m2.lock.json" '{"taskId": "9002", "changeSurface": "DOCS", "roles": {"predicted": {"surface": "DOCS"}, "actual": null}}'
+run_metrics_json "$MD"
+assert_contains "DOCS lock (changeSurface) is docs_only without any SKIPPED" "$OUT" '"docs_only": true'
+assert_contains "  report surfaces the changeSurface" "$OUT" '"surface": "DOCS"'
+
+# Predicted-surface fallback: changeSurface still null, predicted DOCS.
+MD="$TMP/met3"; mkdir -p "$MD"
+synth_lock "$MD/m3.lock.json" '{"taskId": "9003", "changeSurface": null, "roles": {"predicted": {"surface": "DOCS"}, "actual": null}}'
+run_metrics_json "$MD"
+assert_contains "predicted DOCS surface (changeSurface null) is docs_only" "$OUT" '"docs_only": true'
+assert_contains "  report surfaces the predicted surface" "$OUT" '"surface": "DOCS"'
+
+# Legacy lock without the v2 fields keeps the old SKIPPED heuristic.
+MD="$TMP/met4"; mkdir -p "$MD"
+synth_lock "$MD/m4.lock.json" '{"taskId": "9004"}'
+mod_lock "$MD/m4.lock.json" 'lock.pop("changeSurface", None); lock.pop("roles", None); lock["history"].insert(1, {"timestamp": "2026-10-09T11:00:00+00:00", "fromStage": "IMPLEMENTATION_COMPLETE", "toStage": "QA_SKIPPED", "agentId": "t", "reason": "legacy skip"})'
+run_metrics_json "$MD"
+assert_contains "legacy lock without v2 fields keeps the SKIPPED heuristic" "$OUT" '"docs_only": true'
+assert_contains "  legacy report has no surface to show" "$OUT" '"surface": null'
+
+# Legacy lock without SKIPPED stages is not docs_only (heuristic, both sides).
+MD="$TMP/met5"; mkdir -p "$MD"
+synth_lock "$MD/m5.lock.json" '{"taskId": "9005"}'
+mod_lock "$MD/m5.lock.json" 'lock.pop("changeSurface", None); lock.pop("roles", None)'
+run_metrics_json "$MD"
+assert_contains "legacy lock without SKIPPED stages is not docs_only" "$OUT" '"docs_only": false'
+
+# MIXED/NONE surfaces never flip the flag; the table report shows the surface.
+MD="$TMP/met6"; mkdir -p "$MD"
+synth_lock "$MD/m6.lock.json" '{"taskId": "9006", "changeSurface": "MIXED", "roles": {"predicted": {"surface": "MIXED"}, "actual": null}, "history": [
+  {"timestamp": "2026-10-09T10:00:00+00:00", "fromStage": null, "toStage": "IMPLEMENTATION_STARTED", "agentId": "t", "reason": "lock acquired"},
+  {"timestamp": "2026-10-09T11:00:00+00:00", "fromStage": "IMPLEMENTATION_COMPLETE", "toStage": "QA_SKIPPED", "agentId": "t", "reason": "mixed code-only qa"}]}'
+run_metrics_json "$MD"
+assert_contains "MIXED surface with a SKIPPED stage is not docs_only" "$OUT" '"docs_only": false'
+run_flow --root "$(make_repo)" metrics --dir "$MD"
+assert_contains "table report carries a surf column" "$OUT" "rvw_r qa_f  surf"
+assert_contains "  table shows the task's surface" "$OUT" "MIXED"
 
 # ---------------------------------------------------------------------------
 printf '\n=== summary ===\n'
