@@ -19,6 +19,10 @@
 #                      acceptance carry-over): append-only, workStage preserved,
 #                      "checkpoint": true, refusals (missing/unparseable lock,
 #                      non-repo), validate still green
+#  10. followups    — MERGED gate closed-followups convention (task 0045
+#                      item 6; 0042 acceptance): full strikethrough closes a
+#                      box, fenced blocks + inline code spans are not items,
+#                      --force waiver unchanged
 #
 # Python 3 stdlib + git only. Portable bash 3.2 (no associative arrays, no
 # ${var,,}); every scenario runs against throwaway mktemp fixtures.
@@ -925,6 +929,165 @@ run_flow note "$NG/.task-locks/nn.lock.json" --text x --agent coder
 assert_refused "lock outside a git repository refuses"
 assert_contains "  names the repository problem" "$ERR" "not inside a git repository"
 assert_not_contains "  no traceback" "$ERR" "Traceback"
+
+# ---------------------------------------------------------------------------
+section "10. followups — closed-followups convention + markdown-aware scan (0045 item 6)"
+# ---------------------------------------------------------------------------
+
+# Each case walks a fresh lock to REFLECTION_COMPLETE, writes one reflection
+# artifact, then attempts the MERGED transition — the follow-up gate.
+fu_prep() { # fu_prep <dir> <task>
+  run_flow --root "$1" new "$2" --agent mgr
+  run_flow transition "$1/.task-locks/$2.lock.json" IMPLEMENTATION_COMPLETE --agent dev
+  run_flow transition "$1/.task-locks/$2.lock.json" AWAITING_REVIEW --agent dev
+  run_flow transition "$1/.task-locks/$2.lock.json" CODE_REVIEW_APPROVED --agent rev
+  run_flow transition "$1/.task-locks/$2.lock.json" AWAITING_QA --agent qa
+  run_flow transition "$1/.task-locks/$2.lock.json" QA_PASSED --agent qa
+  run_flow transition "$1/.task-locks/$2.lock.json" REFLECTION_COMPLETE --agent ref
+}
+fu_art() { # fu_art <dir> <task> (artifact body on stdin)
+  mkdir -p "$1/.task-locks/artifacts/$2"
+  cat >"$1/.task-locks/artifacts/$2/reflection.md"
+}
+
+# Plain open box refuses (baseline unchanged).
+R="$TMP/fu-open"; fu_prep "$R" o1
+fu_art "$R" o1 <<'EOF'
+# Reflection
+- [ ] real open item
+EOF
+run_flow transition "$R/.task-locks/o1.lock.json" MERGED --agent ref
+assert_refused "plain open box refuses MERGED"
+assert_contains "  refusal names the artifact and line" "$ERR" "reflection.md:2"
+
+# Fully struck-through box passes: closed/superseded without claiming
+# completion (the closed-followups convention, 0042 acceptance).
+R="$TMP/fu-struck"; fu_prep "$R" s1
+fu_art "$R" s1 <<'EOF'
+# Reflection
+- [ ] ~~finding: matcher regex path~~
+EOF
+run_flow transition "$R/.task-locks/s1.lock.json" MERGED --agent ref
+assert_ok "fully struck-through box passes MERGED (closed-followups convention)"
+
+# - [x] keeps passing (checked boxes untouched).
+R="$TMP/fu-checked"; fu_prep "$R" c1
+fu_art "$R" c1 <<'EOF'
+# Review
+- [x] fixed item
+EOF
+run_flow transition "$R/.task-locks/c1.lock.json" MERGED --agent ref
+assert_ok "- [x] box still passes MERGED"
+
+# Marker in an inline code span is prose, not an item.
+R="$TMP/fu-span"; fu_prep "$R" sp1
+fu_art "$R" sp1 <<'EOF'
+# Reflection
+The gate scans for `- [ ]` items in the task's artifacts.
+EOF
+run_flow transition "$R/.task-locks/sp1.lock.json" MERGED --agent ref
+assert_ok "marker inside an inline code span is not an item"
+
+# Marker in a fenced block is code, not an item.
+R="$TMP/fu-fence"; fu_prep "$R" f1
+fu_art "$R" f1 <<'EOF'
+# Reflection
+Example scan output:
+
+```
+- [ ] inside a fence
+```
+EOF
+run_flow transition "$R/.task-locks/f1.lock.json" MERGED --agent ref
+assert_ok "marker inside a fenced block is not an item"
+
+# Partial strikethrough is still open (the whole item text must be struck).
+R="$TMP/fu-partial"; fu_prep "$R" p1
+fu_art "$R" p1 <<'EOF'
+# Reflection
+- [ ] ~~part~~ and part
+EOF
+run_flow transition "$R/.task-locks/p1.lock.json" MERGED --agent ref
+assert_refused "partial strikethrough is still open"
+
+# A box that merely ends struck (leading text unstruck) is still open.
+R="$TMP/fu-tailstruck"; fu_prep "$R" p2
+fu_art "$R" p2 <<'EOF'
+# Reflection
+- [ ] wording updated ~~per round 2~~
+EOF
+run_flow transition "$R/.task-locks/p2.lock.json" MERGED --agent ref
+assert_refused "box whose item text does not start struck is still open"
+
+# Struck-through box with a trailing parenthetical annotation passes.
+R="$TMP/fu-annot"; fu_prep "$R" a1
+fu_art "$R" a1 <<'EOF'
+# Reflection
+- [ ] ~~finding: matcher regex path~~ (fixed in IskInFlow 3184125)
+EOF
+run_flow transition "$R/.task-locks/a1.lock.json" MERGED --agent ref
+assert_ok "struck-through box with a trailing annotation passes"
+
+# Multi-line fence containing markers passes: fence state is tracked across
+# lines, so the markers never read as items.
+R="$TMP/fu-multifence"; fu_prep "$R" m1
+fu_art "$R" m1 <<'EOF'
+# Reflection
+Captured scanner output across lines:
+
+```
+header
+- [ ] not an item
+- [ ] also not an item
+```
+
+prose after the fence.
+EOF
+run_flow transition "$R/.task-locks/m1.lock.json" MERGED --agent ref
+assert_ok "multi-line fence containing markers is not an item"
+
+# An open box AFTER a closed fence still refuses (the fence really closed).
+R="$TMP/fu-afterfence"; fu_prep "$R" m2
+fu_art "$R" m2 <<'EOF'
+# Reflection
+```
+- [ ] inside
+```
+- [ ] after the fence
+EOF
+run_flow transition "$R/.task-locks/m2.lock.json" MERGED --agent ref
+assert_refused "open box after a closed fence still refuses"
+
+# ~~~ fences are tracked like backtick fences.
+R="$TMP/fu-tilde"; fu_prep "$R" t1
+fu_art "$R" t1 <<'EOF'
+# Reflection
+~~~
+- [ ] inside a tilde fence
+~~~
+EOF
+run_flow transition "$R/.task-locks/t1.lock.json" MERGED --agent ref
+assert_ok "tilde fences are tracked like backtick fences"
+
+# Indented open box still refuses (list nesting does not hide an item).
+R="$TMP/fu-indent"; fu_prep "$R" i1
+fu_art "$R" i1 <<'EOF'
+# Reflection
+  - [ ] indented open item
+EOF
+run_flow transition "$R/.task-locks/i1.lock.json" MERGED --agent ref
+assert_refused "indented open box still refuses"
+
+# --force semantics unchanged: a waiver still bypasses the gate.
+R="$TMP/fu-force"; fu_prep "$R" w1
+fu_art "$R" w1 <<'EOF'
+# Reflection
+- [ ] waived item
+EOF
+run_flow transition "$R/.task-locks/w1.lock.json" MERGED --agent ref --force --reason "user waiver"
+assert_ok "--force still bypasses the follow-up gate"
+assert_json "  MERGED recorded despite the open box" \
+  "$R/.task-locks/w1.lock.json" 'lock["history"][-1]["toStage"]' '"MERGED"'
 
 # ---------------------------------------------------------------------------
 printf '\n=== summary ===\n'
