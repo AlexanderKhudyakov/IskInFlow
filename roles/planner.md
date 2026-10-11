@@ -120,9 +120,9 @@ Before finalizing, verify: architecture supports all requirements, performance t
 ### Registration Mechanics
 - Entries are created only through the host's `Tasks/new.sh <type> <slug>
   "Title"` — script-authored files; **ids are issued by the tracker**
-  (sequential, monotonic, never reused). No global numbering is checked or
-  assigned by the planner: there is no NNN numbering to keep unique — that
-  check is obsolete along with plan directories.
+  (sequential, monotonic, never reused). The planner chooses no ids and runs
+  no uniqueness checks over them — the legacy global-uniqueness sweep is
+  retired along with plan directories.
 - The executor is a **tech_writer- or planner-profile subagent**; the
   Manager triggers and verifies, never hand-edits tracker files
   ([`guides/task_tracker.md`](../guides/task_tracker.md) "Authorship").
