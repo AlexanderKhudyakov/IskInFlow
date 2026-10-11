@@ -10,8 +10,13 @@ Subcommands:
   classify    Derive the change surface from the branch diff (default: the
               lock's own repo; --repo overrides for nested implementation
               repos); set changeSurface and roles.actual with diff evidence
-              in history.
-  transition  Move a lock to a new gate stage, validating legality, appending history.
+              in history. Post-merge branches derive from the merge commit's
+              first-parent diff; a fast-forward-absorbed branch refuses (the
+              classification window is closed).
+  transition  Move a lock to a new gate stage, validating legality, appending
+              history. Review-gate entry (AWAITING_REVIEW /
+              CODE_REVIEW_REQUESTED / CODE_REVIEW_SKIPPED) requires a
+              classified surface (task 0053); --force waives into history.
   note        Append a checkpoint entry to a lock's history without moving
               workStage (progress notes; task 0043 item 7).
   check-push  Pre-push gate for ai/* branches (lock present, stage known, artifacts exist).
@@ -193,6 +198,12 @@ TRANSITIONS = {
 # Fix-loop counter: how many CHANGES_REQUESTED rounds before escalation.
 MAX_REVIEW_ROUNDS = 2
 MAX_QA_ROUNDS = 2
+
+# Review-gate stages that may not be entered without a classified surface
+# (task 0053): gate participation is decided by the VERIFIED surface, so a
+# null changeSurface must not fall back to the predicted staffing here.
+REVIEW_GATE_ENTRY_STAGES = ("AWAITING_REVIEW", "CODE_REVIEW_REQUESTED",
+                            "CODE_REVIEW_SKIPPED")
 
 # Stages that count as rework events for metrics.
 REWORK_PATTERNS = re.compile(
@@ -421,9 +432,23 @@ def effective_docs_scope(lock):
 def _surface_transition_refusal(lock, target):
     """Compensating transition refusals (spec §5); None when allowed.
 
-    Locks with neither changeSurface nor a predicted surface (pre-v2/legacy)
-    keep today's semantics — no refusal.
+    The review gate requires classification first (task 0053): entering
+    AWAITING_REVIEW / CODE_REVIEW_REQUESTED / CODE_REVIEW_SKIPPED while
+    `changeSurface` is null refuses — a predicted surface (or its absence)
+    is staffing intent, never verification, so a whole pipeline can no
+    longer pass without `flow classify`. --force waives it (recorded in
+    history as `forced: true`), which also preserves a path for pre-v2
+    legacy locks.
     """
+    if target in REVIEW_GATE_ENTRY_STAGES and not lock.get("changeSurface"):
+        predicted = (lock.get("roles") or {}).get("predicted") or {}
+        predicted_surface = predicted.get("surface")
+        detail = (f"the predicted surface {predicted_surface} is a "
+                  "prediction, not verification" if predicted_surface
+                  else "no surface has been predicted or derived")
+        return (f"{target} refused: changeSurface is null — run `flow "
+                "classify` to derive the surface from the branch diff "
+                f"before the review gate ({detail})")
     surface = effective_surface(lock)
     if not surface:
         return None
@@ -921,6 +946,53 @@ def cmd_note(args):
 # classify (gate-time surface verification)
 # ---------------------------------------------------------------------------
 
+def _post_merge_diff(repo, branch):
+    """Recover the change set for a branch whose `main...branch` diff came
+    back empty (task 0053).
+
+    An empty three-dot diff is ambiguous: a merged branch collapses it (the
+    merge-base is the branch tip), but a fresh branch at the main tip looks
+    identical. Returns one of:
+
+      ("paths", paths, merge_sha) — merged via a merge commit: the
+        first-parent diff of the oldest merge on the branch..main ancestry
+        path is exactly what the branch changed (the workflow's --no-ff
+        merge convention).
+      ("closed", None, None) — fully absorbed into main without a merge
+        commit (fast-forward): the fork point is unrecoverable, so the
+        classification window is closed.
+      ("live", None, None) — genuinely empty: the branch is at the main tip
+        (or shares no ancestry), not yet merged; NONE stays the honest
+        derivation.
+    """
+    proc = subprocess.run(
+        ["git", "-C", repo, "rev-list", "--merges", "--ancestry-path",
+         f"{branch}..main"],
+        capture_output=True, text=True,
+    )
+    merges = ([line.strip() for line in proc.stdout.splitlines() if line.strip()]
+              if proc.returncode == 0 else [])
+    if merges:
+        merge = merges[-1]  # oldest merge on the path = the commit that merged the branch
+        proc = subprocess.run(
+            ["git", "-C", repo, "diff", "--name-only", "-z", f"{merge}^1", merge],
+            capture_output=True, text=True,
+        )
+        if proc.returncode == 0:
+            return "paths", [p for p in proc.stdout.split("\0") if p], merge
+    if subprocess.run(
+        ["git", "-C", repo, "merge-base", "--is-ancestor", branch, "main"],
+        capture_output=True, text=True,
+    ).returncode == 0:
+        tips = subprocess.run(
+            ["git", "-C", repo, "rev-parse", branch, "main"],
+            capture_output=True, text=True,
+        ).stdout.split()
+        if len(tips) == 2 and tips[0] != tips[1]:
+            return "closed", None, None
+    return "live", None, None
+
+
 def cmd_classify(args):
     path = args.lock if os.path.isabs(args.lock) else os.path.join(find_repo_root(), args.lock)
     if not os.path.exists(path):
@@ -971,6 +1043,24 @@ def cmd_classify(args):
               f"{proc.stderr.strip()}", file=sys.stderr)
         return 1
     paths = [p for p in proc.stdout.split("\0") if p]
+    post_merge = None
+    if not paths:
+        # Disambiguate the empty diff before reporting NONE (task 0053): a
+        # merged branch collapsed it, a fresh branch merely has no changes.
+        status, recovered, merge_sha = _post_merge_diff(repo, branch)
+        if status == "paths":
+            paths = recovered
+            post_merge = merge_sha
+        elif status == "closed":
+            print(
+                f"flow classify: too late to classify: branch {branch!r} is "
+                "fully merged into main without a merge commit (fast-forward "
+                "absorption) — the main...branch diff has collapsed and no "
+                "first-parent merge diff exists to derive the surface from; "
+                "classification must happen before the branch merges",
+                file=sys.stderr,
+            )
+            return 1
     classes = load_path_classes(repo)
     evidence = derive_surface(paths, classes)
     derived = evidence["surface"]
@@ -1031,6 +1121,9 @@ def cmd_classify(args):
     now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     stage = lock.get("workStage")
     diff_source = "--repo override" if args.repo else "lock repo (default)"
+    if post_merge:
+        diff_source += (" — post-merge: first-parent diff of merge commit "
+                        f"{post_merge[:12]}")
     lock.setdefault("history", []).append({
         "timestamp": now,
         "fromStage": stage,
@@ -1051,6 +1144,7 @@ def cmd_classify(args):
             "predicted": predicted_surface,
             "narrowing": narrowing,
             "forced": forced,
+            "postMerge": post_merge,
         },
     })
     with open(path, "w", encoding="utf-8") as fh:
