@@ -24,7 +24,10 @@ Subcommands:
               print the role-guard matrix as JSON (`flow role matrix`).
   archive     Move a MERGED+COMPLETED lock to .task-locks/completed/ with a
               scoped archival commit.
-  metrics     Lead time / rework statistics from completed locks.
+  metrics     Lead time / rework statistics from completed locks; the
+              docs_only flag follows the lock's surface (changeSurface, else
+              roles.predicted.surface; legacy locks keep the SKIPPED
+              heuristic) and the report shows the surface (task 0054).
 
 v2 surface model (guides/pipeline.md "Change surfaces and staffing"): a lock
 carries `changeSurface` (CODE | DOCS | MIXED | NONE, set only by `flow
@@ -1448,12 +1451,22 @@ def _task_metrics(path):
     stages = [entry_stage(h) or "" for h in history]
     review_rounds = sum(1 for s in stages if re.search(r"CHANGES_REQUESTED", s, re.I))
     qa_failures = sum(1 for s in stages if re.search(r"QA_FAILED|BOUNCED", s, re.I))
-    docs_only = any("SKIPPED" in s for s in stages)
+    # docs_only is a property of the change surface (task 0054), read from the
+    # v2 fields: changeSurface, else roles.predicted.surface. SKIPPED stages
+    # are gate evidence (--force waivers on CODE tasks, future NONE surfaces),
+    # not a surface — they no longer flip the flag. Pre-v2 legacy locks with
+    # neither field keep the old SKIPPED heuristic.
+    surface = effective_surface(lock)
+    if surface:
+        docs_only = surface == "DOCS"
+    else:
+        docs_only = any("SKIPPED" in s for s in stages)
     merged_alias = normalize_stage(lock.get("workStage")) == "MERGED"
     return {
         "task": lock.get("taskId", os.path.basename(path)),
         "status": lock.get("status"),
         "merged": merged_alias,
+        "surface": surface,
         "days": round((t1 - t0).total_seconds() / 86400, 2),
         "stages": len(history),
         "review_rounds": review_rounds,
@@ -1479,14 +1492,15 @@ def cmd_metrics(args):
         return 0
 
     rows.sort(key=lambda r: r["days"], reverse=True)
-    print(f"{'task':40.40s} {'days':>6} {'stages':>6} {'rvw_r':>5} {'qa_f':>4}  flags")
+    print(f"{'task':40.40s} {'days':>6} {'stages':>6} {'rvw_r':>5} {'qa_f':>4} {'surf':>5}  flags")
     for r in rows[: args.limit]:
         flags = "".join([
             "D" if r["docs_only"] else "-",
             "!" if not r["merged"] else "-",
         ])
         print(f"{r['task']:40.40s} {r['days']:6.2f} {r['stages']:6d} "
-              f"{r['review_rounds']:5d} {r['qa_failures']:4d}  {flags}")
+              f"{r['review_rounds']:5d} {r['qa_failures']:4d} "
+              f"{str(r['surface'] or '-'):>5}  {flags}")
     if len(rows) > args.limit:
         print(f"... and {len(rows) - args.limit} more (--limit to show)")
 
