@@ -118,16 +118,19 @@ Before finalizing, verify: architecture supports all requirements, performance t
   created anew.
 
 ### Registration Mechanics
-- Entries are created only through the host's `Tasks/new.sh <type> <slug>
-  "Title"` — script-authored files; **ids are issued by the tracker**
+- Entries are created only through the tracker creation script — canonical
+  `scripts/tracker-new.sh <type> <slug> "Title"`, host shim `Tasks/new.sh` —
+  script-authored files; **ids are issued by the tracker**
   (sequential, monotonic, never reused). The planner chooses no ids and runs
   no uniqueness checks over them — the legacy global-uniqueness sweep is
   retired along with plan directories.
 - The executor is a **tech_writer- or planner-profile subagent**; the
   Manager triggers and verifies, never hand-edits tracker files
   ([`guides/task_tracker.md`](../guides/task_tracker.md) "Authorship").
-- Validation: the host's `Tasks/validate.sh` must pass (frontmatter schema,
-  `blocked-by`/`relates-to` reference integrity, cycles).
+- Validation: the tracker validator must pass — canonical
+  `scripts/tracker-validate.sh`, host shim `Tasks/validate.sh`
+  (frontmatter schema, `blocked-by`/`relates-to` reference integrity,
+  cycles).
 
 ### Milestone and Order
 - Milestones and sequencing are expressed through **`blocked-by:` chains +
@@ -147,7 +150,7 @@ Before finalizing, verify: architecture supports all requirements, performance t
 ### Process
 1. **Dependency Mapping**: Create dependency graph, identify critical path, find parallel opportunities — expressed as `blocked-by:` chains of tracker ids
 2. **Prioritization**: Map milestones and phases to priorities (`P0..P3`); chains unblock in priority order
-3. **Task Registration**: One `Tasks/new.sh <type> <slug> "Title"` call per work unit; frontmatter gets `spec:`, `blocked-by:`, `tags:`, `priority:`; type per the tracker's type table (`task`/`feature`/…)
+3. **Task Registration**: One tracker-creation call (`scripts/tracker-new.sh <type> <slug> "Title"` or the host shim `Tasks/new.sh`) per work unit; frontmatter gets `spec:`, `blocked-by:`, `tags:`, `priority:`; type per the tracker's type table (`task`/`feature`/…)
 4. **Parallelization Analysis**: Independent tasks carry no `blocked-by` edges between them and can be batch-locked by the Manager
 
 ### Task Body
@@ -161,14 +164,16 @@ Each tracker task carries at minimum:
   (checkbox items).
 
 Format source of truth: [`guides/task_tracker.md`](../guides/task_tracker.md)
-(the host's `Tasks/_template/task.md` is the live template `new.sh` reads).
+(the canonical template `templates/tracker-task-template.md` in this repo
+is what `scripts/tracker-new.sh` reads — no host copy since task 0055).
 
 ### Quality Checklist
 - [ ] Every spec requirement is covered by exactly one task; no duplicate work or gaps
 - [ ] `blocked-by:` chains form a DAG matching the dependency graph; critical path identifiable
 - [ ] Each task is self-contained, right-sized (1-5 days), with clear acceptance criteria
 - [ ] Priorities express the milestone order; DevOps and documentation tasks included
-- [ ] `Tasks/validate.sh` passes
+- [ ] The tracker validator passes (`scripts/tracker-validate.sh` / host
+      shim `Tasks/validate.sh`)
 
 ---
 
