@@ -7,9 +7,15 @@ instead of guessing.
 
 ## Required from the host
 
-1. **Workflow locations** — where planning artifacts live (ideas, tech specs,
-   development plans). Declared in the host's root instructions file
-   (`CLAUDE.md` / `AGENTS.md`), e.g. a "Workflow locations" section.
+1. **Workflow locations** — where planning artifacts live (ideas, tech specs).
+   Declared in the host's root instructions file
+   (`CLAUDE.md` / `AGENTS.md`), e.g. a "Workflow locations" section. A spec's
+   task decomposition is **not** a docs artifact: it is registered as tracker
+   tasks (requirement 4) with `blocked-by:` chains
+   (`commands/idea_to_dev_plan.md` Phase 3). Development-plan directories
+   (`<spec>_development_plan/`) are retired — the framework never instructs
+   creating new ones; hosts that still hold them keep them as legacy, not
+   migrated forcibly.
 2. **Skills directory** — the host's project-knowledge skills (architecture,
    conventions, how-tos) with an `_index.md` index. The reflector writes here.
    Recommended layout: a harness-neutral directory (e.g. `.agents/skills/`)

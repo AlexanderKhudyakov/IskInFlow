@@ -11,11 +11,16 @@ rules — prefer it over hand-editing lock files.
 
 | Parameter | `full` lane (`start_or_continue_next_task`) | `quick` lane (`quick_task`) |
 | --- | --- | --- |
-| Task IDs | `<NNN>` from a development plan | `qt-<short-name>` |
-| Planning artifact | task file in the development plan | tracker task `Tasks/NNNN-<slug>/task.md` ([`task_tracker.md`](task_tracker.md)) |
-| Brief cap | n/a (full task file) | ~80 lines; over cap → switch to `full` lane |
-| Branch | `ai/<task-id>-<short-description>` | `ai/qt-<short-name>` |
+| Task IDs | tracker ids — `Tasks/NNNN-<slug>`, spec-backed (`spec:` → tech spec) | tracker ids — `Tasks/NNNN-<slug>` |
+| Planning artifact | tracker task `Tasks/NNNN-<slug>/task.md` ([`task_tracker.md`](task_tracker.md)); planning depth lives in the spec it points at | tracker task `Tasks/NNNN-<slug>/task.md` ([`task_tracker.md`](task_tracker.md)) |
+| Brief cap | n/a (full task file + its spec) | ~80 lines; over cap → switch to `full` lane |
+| Branch | `ai/<NNNN>-<short-description>` (tracker id — the norm) | `ai/<NNNN>-<short-description>` (legacy: `ai/qt-<short-name>`) |
 | Stages | identical | identical |
+
+Both lanes plan in the tracker; the lanes differ in scope and entry point,
+not in artifact location. Development-plan directories are retired — a
+spec's decomposition is registered as tracker tasks with `blocked-by:`
+chains (`commands/idea_to_dev_plan.md`, `roles/planner.md` Phase 3).
 
 ## Change surfaces and staffing (set by the Manager)
 
@@ -227,7 +232,7 @@ readable:
 | Stage | Artifact | Path |
 | --- | --- | --- |
 | Any stage | researcher report (cited evidence; plain bullets, no checkbox items) | `.task-locks/artifacts/<task-id>/research-*.md` |
-| Plan (quick lane) | tracker task | `Tasks/NNNN-<slug>/task.md` ([`task_tracker.md`](task_tracker.md)) |
+| Plan (both lanes) | tracker task | `Tasks/NNNN-<slug>/task.md` ([`task_tracker.md`](task_tracker.md)) |
 | Merge | tracker task status → `review` (registry; both lanes) | `Tasks/NNNN-<slug>/task.md` |
 | Review | review report (round-numbered) | `.task-locks/artifacts/<task-id>/review.md` |
 | QA | QA report (with round + risk class) | `.task-locks/artifacts/<task-id>/qa-report.md` |

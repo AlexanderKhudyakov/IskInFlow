@@ -13,7 +13,7 @@ cheat sheet that links here.
 | --- | --- | --- |
 | Task tracker (`Tasks/`) | Registry + description of every task: **what** and **why** | — |
 | `.task-locks/` | **Execution**: lock files (stages, ownership, merge) and pipeline execution artifacts — review/QA/reflection reports | `lock:` |
-| Host docs (e.g. `Docs/packages/`) | Specs: ideas, tech specs, development plans | `spec:` |
+| Host docs (e.g. `Docs/packages/`) | Specs: ideas, tech specs | `spec:` |
 
 The tracker status is high-level: while a task is being executed it is simply
 `in-progress`; lock-internal stages (review gate, QA gate) are never duplicated
@@ -29,13 +29,18 @@ into `task.md`.
   artifacts (review, QA, reflection) still live in `.task-locks/`. When work
   starts, the task's `branch:` and `lock:` fields are filled in (by a
   tech_writer round or script — the Manager triggers, never hand-edits).
-- The **full lane** (`start_or_continue_next_task`) keeps its planning
-  artifacts in development plans; the tracker task holds the registry entry
-  and links the plan via `spec:`. The registry entry is created at task
-  selection, set `in-progress` at lock acquisition, `review` at final merge,
+- The **full lane** (`start_or_continue_next_task`) plans directly in the
+  tracker too: the tracker task **is** the planning artifact, with `spec:`
+  linking the tech spec the task implements. Spec decompositions are
+  registered here by the `idea_to_dev_plan` pipeline — one tracker task per
+  work item, `blocked-by:` encoding the dependency graph, priorities the
+  order (`roles/planner.md` Phase 3). Development-plan directories
+  (`<spec>_development_plan/`) are retired — no new ones are created; the
+  task is set `in-progress` at lock acquisition, `review` at final merge,
   and `done` when the user accepts the result.
-- Historical `qt-` briefs and numbered plan tasks are legacy; they are not
-  migrated forcibly.
+- Historical `qt-` briefs, numbered plan tasks, and existing
+  `<spec>_development_plan/` directories are legacy; they are not migrated
+  forcibly.
 
 ### Authorship
 
@@ -122,7 +127,7 @@ Optional fields:
 | `relates-to` | [int] | Related tasks (duplicates, prior history) |
 | `branch` | string | Execution branch, keyed to the task id: `ai/<NNNN>-<slug>` (tracker id — the norm, e.g. `ai/0001-discovery-dedup`). Legacy: `ai/qt-<name>` (old quick lane), `ai/<NNN>-<desc>` (old plan numbering) |
 | `lock` | string | Lock path — real patterns: `.task-locks/<NNNN>.lock.json` (tracker id, 4-digit — the norm; `taskId` = the tracker id, `planFile` points at the tracker task) or legacy `.task-locks/qt-<name>.lock.json` / unpadded `<NNN>.lock.json`. Completed locks move to `.task-locks/completed/`; the field records the lock at execution time and need not be updated |
-| `spec` | string | Path to the spec/plan in host docs (the output of research tasks). Points at the **current** spec location — completed work graduates to the docs archive, update the link then |
+| `spec` | string | Path to the spec in host docs (the output of research tasks; for full-lane tasks, the tech spec the task implements). Points at the **current** spec location — completed work graduates to the docs archive, update the link then |
 | `env` | map | Bugs only: reproduction environment |
 
 `env` example:
