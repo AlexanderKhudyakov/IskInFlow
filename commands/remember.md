@@ -8,6 +8,13 @@ the automatic writers (Claude Code memsearch plugin's Stop hook; ZCode
 guaranteed, curated record: after heavy debugging, before closing a long task,
 or when the automatic summary would miss the point.
 
+## Scope
+When the manager role marker is active (a workflow session in delegation
+mode), the memory append runs in a **reflector-profile subagent** — the top
+session's Edit and Bash writes are denied by the role-guard while the marker
+holds `manager`. Outside workflow sessions (no marker), the procedure below is
+unchanged.
+
 ## Procedure
 
 1. Resolve the memory target: the **main worktree's** root `.memsearch/memory/`
