@@ -4,11 +4,11 @@
 Before executing any step in this command, consult `guides/mcp_first_tooling.md`. MCP and network tools belong to the **executor subagents**: researcher, coder, and planner profiles use them per their own role contracts. The **Manager itself must not** — network and `mcp__*` tools are denied to the manager role; it works through a mechanical allowlist and delegation only.
 
 ## Purpose
-Select the next task(s) from the current milestone and run the standard task pipeline on them. Default mode is **delegation**: the Manager orchestrates, executor roles run as subagents. Multi-agent top-level parallel execution remains supported.
+Select the next task(s) from the host task tracker and run the standard task pipeline on them. Default mode is **delegation**: the Manager orchestrates, executor roles run as subagents. Multi-agent top-level parallel execution remains supported.
 
 **Stage mechanics (gates, review/QA loops with circuit breakers, risk classes, artifacts, merge) are defined once in [`guides/pipeline.md`](../guides/pipeline.md) — this command defers to it.** Role contracts: `roles/manager.md`, `roles/researcher.md`, `roles/coder.md`, `roles/tech_writer.md`, `roles/code_reviewer.md`, `roles/qa_engineer.md`, `roles/reflector.md`.
 
-Lane parameters for this command (**full lane**): task IDs `<NNN>` from a development plan; branch `ai/<task-id>-<short-description>`; planning artifact = the plan's task file.
+Lane parameters for this command (**full lane**): task IDs are tracker ids (`Tasks/NNNN-<slug>`, spec-backed via `spec:` → tech spec); branch `ai/<NNNN>-<short-description>`; planning artifact = the tracker task itself (the planning depth lives in the spec it points at; `guides/task_tracker.md`).
 
 Key rules:
 - **Maximize parallelism**: when multiple eligible unblocked tasks exist, batch-lock them and launch one agent per task **in a single message** so they run concurrently. Each agent gets its own task, lock, worktree, and feature branch.
@@ -56,7 +56,13 @@ Key rules:
 - If tasks are awaiting review/QA and this agent is the designated reviewer: perform the review/QA first, then proceed to new implementation.
 
 ### Step 2: Select Next Task(s) (Manager)
-- If no ACTIVE lock exists (or user declined to resume), identify **all** eligible unblocked tasks from the current milestone. Selection criteria: `guides/git_and_workflow_operations.md` Part 9; full Manager authority: `roles/manager.md`.
+- If no ACTIVE lock exists (or user declined to resume), identify **all**
+  eligible unblocked tasks **from the tracker** (`Tasks/*/task.md`): a task
+  is eligible when its `status` is `open` (or `blocked` just unblocked) and
+  every id in its `blocked-by:` is `done`/`cancelled` — the `blocked-by`
+  graph, not plan files, decides what is ready; order candidates by
+  `priority`. Selection criteria: `guides/git_and_workflow_operations.md`
+  Part 9; full Manager authority: `roles/manager.md`.
 - **Parallel-first**: batch-lock all eligible tasks in a single commit (Part 5: Batch Lock Acquisition), then spawn one Task-tool agent per task **in a single message**.
 - **Locks are mechanical — no hand-authored lock JSON.** Predicted staffing is recorded at creation:
   ```bash
@@ -73,7 +79,16 @@ Key rules:
 - **Lock-first push**: the Manager commits the lock scoped to
   `.task-locks/**` + `Tasks/**` and pushes `main` before implementation
   begins (Part 5: Batch Lock Acquisition).
-- **Tracker registry**: for each selected task, ensure a registry entry exists in the host task tracker (`Tasks/NNNN-<slug>/task.md`, format: [`guides/task_tracker.md`](../guides/task_tracker.md)): create it if missing (`Tasks/new.sh <type> <slug> "Title"`), fill `spec:` with the development-plan path. The plan file remains the planning artifact of the full lane; the registry entry is the task's user-facing record. **The Manager never hand-edits `Tasks/**`** — entry creation runs through `Tasks/new.sh`; `branch:`/`lock:`/`spec:` fills and status flips go through a tech_writer round or host scripts (`Tasks/*.sh`); the Manager triggers them and verifies the result.
+- **Tracker registry**: full-lane tasks live in the tracker already — the
+  tracker task is the planning artifact (`guides/task_tracker.md`); verify it
+  exists and its `spec:` points at the **current** spec location (create it
+  via `Tasks/new.sh <type> <slug> "Title"` only when genuinely missing, e.g.
+  a manually commissioned task). The task's user-facing record and its
+  planning body are the same file. **The Manager never hand-edits
+  `Tasks/**`** — entry creation runs through `Tasks/new.sh`;
+  `branch:`/`lock:`/`spec:` fills and status flips go through a tech_writer
+  round or host scripts (`Tasks/*.sh`); the Manager triggers them and
+  verifies the result.
 
 ### Steps 3–9: Run the pipeline (all roles)
 Run [`guides/pipeline.md`](../guides/pipeline.md) with **lane = full**: lock acquisition and TDD implementation on a worktree feature branch (Coder), gate classification (Manager), read-only cross-context review, QA on the approved commit, mandatory reflection, final merge and push with lock archival. Observe the circuit breakers (2 review rounds / 2 QA rounds → escalate to the user) and the coordination-commit batching discipline defined there.
@@ -94,7 +109,7 @@ triggered and verified by the Manager.
 - Feature branch `ai/...` created after the lock is on remote
 - Pipeline artifacts per `guides/pipeline.md` (review / QA report for code tasks; reflection always)
 - New/updated skills in the host skills directory (if any)
-- Tracker registry entry in `Tasks/` (`spec:` → development plan; status: `in-progress` at lock, `review` at merge, `done` at user acceptance)
+- Tracker registry entry in `Tasks/` (`spec:` → the tech spec; status: `in-progress` at lock, `review` at merge, `done` at user acceptance)
 - Final merge includes lock archival; `main` pushed; cleanup only after push confirmed
 
 ## Multi-Agent Notes

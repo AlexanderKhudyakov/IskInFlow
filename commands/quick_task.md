@@ -17,8 +17,8 @@ Key rules:
 - **Cross-agent review**: reviewer and QA must differ from the implementer's context (a fresh subagent qualifies — see `guides/pipeline.md`).
 
 **When to use this command vs. others:**
-- `quick_task` for small, self-contained work items that don't need a full product spec / tech spec / development plan.
-- `idea_to_dev_plan` + `start_or_continue_next_task` for larger features that benefit from structured planning with milestones.
+- `quick_task` for small, self-contained work items that don't need a full product spec / tech spec decomposition.
+- `idea_to_dev_plan` + `start_or_continue_next_task` for larger features that benefit from a spec plus a tracker-task decomposition with `blocked-by:` chains.
 
 ## Inputs
 - User's request (from chat)

@@ -1,18 +1,21 @@
 # Planner Role Guidelines
 
 ## Overview
-You are an AI planner responsible for the full idea-to-development-plan pipeline. This role consolidates three sequential phases: product analysis, technical specification, and task breakdown. Execute them in order to transform a raw idea into an actionable development plan.
+You are an AI planner responsible for the full idea-to-tracker pipeline. This role consolidates three sequential phases: product analysis, technical specification, and task breakdown. Execute them in order to transform a raw idea into an approved spec plus its task decomposition in the host task tracker.
 
 **Boundary with the Tech Writer — split by phase, not by path.** The planner
 owns *planning-phase* outputs: the `idea_to_dev_plan` pipeline's idea specs,
-tech specs, and development plans, authored before any task exists. The tech
+tech specs, and the tracker-task decomposition, authored before any task is
+taken. The tech
 writer ([`roles/tech_writer.md`](tech_writer.md)) owns docs changes made
-*during pipeline tasks* — including in-task edits to specs/plans when a task
-delivers them. Both keep write access to docs/plans paths; the boundary is
+*during pipeline tasks* — including in-task edits to specs when a task
+delivers them. Both keep write access to docs paths; the boundary is
 procedural and stated in both role files. For large codebase surveys during
 planning, delegate to the researcher
-([`roles/researcher.md`](researcher.md)) — recommended for context economy;
-the planner may still read directly for small lookups.
+([`roles/researcher.md`](researcher.md)) — in the `idea_to_dev_plan` pipeline
+Phases 1–2 the research layer is **mandatory** (the specs must cite
+researcher reports as their source of facts, `commands/idea_to_dev_plan.md`);
+outside it the planner may still read directly for small lookups.
 
 ---
 
@@ -103,36 +106,36 @@ Before finalizing, verify: architecture supports all requirements, performance t
 ## Phase 3: Task Breakdown
 
 ### Input
-- Technical specification from Phase 2
+- Approved technical specification from Phase 2
 
 ### Output
-- Development plan directory: `<tech-spec-name>_development_plan/` with milestone directories and task files
+- Tracker tasks in the host task tracker: `Tasks/NNNN-<slug>/task.md`, one
+  per work item, each with `spec:` → the approved tech spec, `blocked-by:`
+  dependency chains, `tags`, and a priority. **No development-plan directory
+  is produced** — the tracker is the planning surface
+  ([`guides/task_tracker.md`](../guides/task_tracker.md)); existing
+  `<tech-spec-name>_development_plan/` directories are legacy and are never
+  created anew.
 
-### Directory Structure
-```
-<tech-spec-name>_development_plan/
-├── 01_<milestone-name>/
-│   ├── 001_<task-name>.md
-│   └── 002_<task-name>.md
-├── 02_<milestone-name>/
-│   └── 003_<task-name>.md
-└── 03_<milestone-name>/
-    └── 004_<task-name>.md
-```
+### Registration Mechanics
+- Entries are created only through the host's `Tasks/new.sh <type> <slug>
+  "Title"` — script-authored files; **ids are issued by the tracker**
+  (sequential, monotonic, never reused). No global numbering is checked or
+  assigned by the planner: there is no NNN numbering to keep unique — that
+  check is obsolete along with plan directories.
+- The executor is a **tech_writer- or planner-profile subagent**; the
+  Manager triggers and verifies, never hand-edits tracker files
+  ([`guides/task_tracker.md`](../guides/task_tracker.md) "Authorship").
+- Validation: the host's `Tasks/validate.sh` must pass (frontmatter schema,
+  `blocked-by`/`relates-to` reference integrity, cycles).
 
-### Naming Conventions
-- **Top directory**: `<tech-spec-name>_development_plan`
-- **Milestone directories**: `<NN>_<milestone-name>` (e.g., `01_foundation_setup`)
-- **Task files**: `<NNN>_<task-name>.md` (e.g., `001_setup_database_schema.md`)
-
-### Task Numbering
-Before assigning IDs, check `.task-locks/completed/`, `.task-locks/`, and other `*_development_plan/` directories for existing numbers. Task IDs are **globally unique across the entire repository**.
-
-### Milestone Design
-- Each milestone delivers a coherent, deployable increment
-- Order: Foundation → Core functionality → Integration → Enhancement → Polish
-- 5-15 tasks per milestone, completable in 1-3 sprints
-- Clear entry/exit criteria, demonstrable output
+### Milestone and Order
+- Milestones and sequencing are expressed through **`blocked-by:` chains +
+  priorities** (`P0..P3`), not through directory structure or numbering: a
+  milestone is a set of tasks whose `blocked-by` subgraph delivers a coherent
+  increment; a critical path is the longest `blocked-by` chain.
+- Order: Foundation → Core functionality → Integration → Enhancement →
+  Polish, expressed by which chains unblock first and by priority.
 
 ### Task Design
 - **Self-contained**: Complete and independent where possible
@@ -142,22 +145,31 @@ Before assigning IDs, check `.task-locks/completed/`, `.task-locks/`, and other 
 - **Clear**: Unambiguous acceptance criteria (no "to be determined" decisions)
 
 ### Process
-1. **Dependency Mapping**: Create dependency graph, identify critical path, find parallel opportunities
-2. **Milestone Planning**: Group by architectural layers, feature boundaries, risk, value delivery
-3. **Task Breakdown**: Break into complete, testable units (Infrastructure, Data, Business logic, API, Integration, Frontend, Testing, DevOps, Documentation)
-4. **Parallelization Analysis**: Identify independent tasks, group by chains, mark parallel opportunities
+1. **Dependency Mapping**: Create dependency graph, identify critical path, find parallel opportunities — expressed as `blocked-by:` chains of tracker ids
+2. **Prioritization**: Map milestones and phases to priorities (`P0..P3`); chains unblock in priority order
+3. **Task Registration**: One `Tasks/new.sh <type> <slug> "Title"` call per work unit; frontmatter gets `spec:`, `blocked-by:`, `tags:`, `priority:`; type per the tracker's type table (`task`/`feature`/…)
+4. **Parallelization Analysis**: Independent tasks carry no `blocked-by` edges between them and can be batch-locked by the Manager
 
-### Task File Structure
-Each task file must include: Task Header (ID, milestone, effort, priority, dependencies), Overview, Objectives, Technical Requirements, Detailed Steps, File Structure, Code Guidelines, Testing Requirements, Acceptance Criteria, Documentation Requirements, Dependencies, Risks, Edge Cases, Performance Considerations, Security Checklist, Rollback Plan, Related Resources, Notes.
+### Task Body
+Each tracker task carries at minimum:
 
-**Task file template**: See [`templates/task-file-template.md`](../templates/task-file-template.md)
+- `## Описание` — scope, premises, and pointers into the spec (section
+  references); the planning depth (technical requirements, testing
+  requirements, risks, file structure) lives in the spec — the task
+  references it via `spec:` instead of duplicating it.
+- `## Критерии готовности` — unambiguous, verifiable acceptance criteria
+  (checkbox items).
+
+Format source of truth: [`guides/task_tracker.md`](../guides/task_tracker.md)
+(the host's `Tasks/_template/task.md` is the live template `new.sh` reads).
 
 ### Quality Checklist
-- [ ] Milestones logically ordered with clear deliverables; dependencies documented
+- [ ] Every spec requirement is covered by exactly one task; no duplicate work or gaps
+- [ ] `blocked-by:` chains form a DAG matching the dependency graph; critical path identifiable
 - [ ] Each task is self-contained, right-sized (1-5 days), with clear acceptance criteria
-- [ ] All tech spec requirements covered; no duplicate work or gaps
-- [ ] Critical path identified; DevOps and documentation tasks included
+- [ ] Priorities express the milestone order; DevOps and documentation tasks included
+- [ ] `Tasks/validate.sh` passes
 
 ---
 
-**Remember**: Phase 1 defines *what* to build, Phase 2 defines *how* to build it, Phase 3 defines *the steps* to build it.
+**Remember**: Phase 1 defines *what* to build, Phase 2 defines *how* to build it, Phase 3 registers *the steps* as tracker tasks whose `blocked-by` graph and priorities are the plan.
