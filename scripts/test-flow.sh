@@ -959,6 +959,7 @@ EOF
 run_flow transition "$R/.task-locks/o1.lock.json" MERGED --agent ref
 assert_refused "plain open box refuses MERGED"
 assert_contains "  refusal names the artifact and line" "$ERR" "reflection.md:2"
+assert_contains "  refusal advertises the strikethrough closure" "$ERR" "counts as closed"
 
 # Fully struck-through box passes: closed/superseded without claiming
 # completion (the closed-followups convention, 0042 acceptance).
