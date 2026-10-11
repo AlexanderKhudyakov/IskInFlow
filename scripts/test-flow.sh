@@ -23,6 +23,13 @@
 #                      item 6; 0042 acceptance): full strikethrough closes a
 #                      box, fenced blocks + inline code spans are not items,
 #                      --force waiver unchanged
+#  11. classify     — review-gate entry requires classification (task 0053):
+#                      AWAITING_REVIEW / CODE_REVIEW_REQUESTED /
+#                      CODE_REVIEW_SKIPPED refuse while changeSurface is null
+#                      (predicted or not), --force writes a waiver; post-merge
+#                      classification derives from the merge commit's
+#                      first-parent diff, ff-absorbed branches refuse "too
+#                      late" (never a NONE mismatch)
 #
 # Python 3 stdlib + git only. Portable bash 3.2 (no associative arrays, no
 # ${var,,}); every scenario runs against throwaway mktemp fixtures.
@@ -171,8 +178,11 @@ section "1. Transitions — new edge, surface refusals, --force waivers, legacy"
 # ---------------------------------------------------------------------------
 
 # New edge CODE_REVIEW_APPROVED -> QA_SKIPPED succeeds on a DOCS lock.
-R="$TMP/tr-docs"; LK="$R/.task-locks/d1.lock.json"
+R="$(make_repo)"; LK="$R/.task-locks/d1.lock.json"
 run_flow --root "$R" new d1 --agent mgr --surface DOCS
+git_branch "$R" ai/d1
+feature_commit "$R" "Docs/guide.md" "hello"
+run_flow classify "$LK" --surface DOCS --class STANDARD --agent cls
 run_flow transition "$LK" IMPLEMENTATION_COMPLETE --agent tw
 run_flow transition "$LK" CODE_REVIEW_REQUESTED --agent tw
 run_flow transition "$LK" CODE_REVIEW_APPROVED --agent rev
@@ -180,25 +190,34 @@ run_flow transition "$LK" QA_SKIPPED --agent rev --reason "docs surface"
 assert_ok "new edge CODE_REVIEW_APPROVED -> QA_SKIPPED succeeds (DOCS)"
 
 # CODE_REVIEW_SKIPPED refused on a CODE lock.
-R="$TMP/tr-code"; LK="$R/.task-locks/c1.lock.json"
+R="$(make_repo)"; LK="$R/.task-locks/c1.lock.json"
 run_flow --root "$R" new c1 --agent mgr --surface CODE
+git_branch "$R" ai/c1
+feature_commit "$R" "src/app.py" "print(1)"
+run_flow classify "$LK" --surface CODE --class STANDARD --agent cls
 run_flow transition "$LK" IMPLEMENTATION_COMPLETE --agent dev
 run_flow transition "$LK" CODE_REVIEW_SKIPPED --agent dev
 assert_refused "CODE_REVIEW_SKIPPED refused on a CODE lock"
 assert_contains "  refusal names the surface" "$ERR" "CODE"
 
 # CODE_REVIEW_SKIPPED refused on a DOCS+standard lock.
-R="$TMP/tr-docs-std"; LK="$R/.task-locks/d2.lock.json"
+R="$(make_repo)"; LK="$R/.task-locks/d2.lock.json"
 run_flow --root "$R" new d2 --agent mgr --surface DOCS
+git_branch "$R" ai/d2
+feature_commit "$R" "Docs/guide.md" "hello"
+run_flow classify "$LK" --surface DOCS --class STANDARD --agent cls
 run_flow transition "$LK" IMPLEMENTATION_COMPLETE --agent tw
 run_flow transition "$LK" CODE_REVIEW_SKIPPED --agent tw
 assert_refused "CODE_REVIEW_SKIPPED refused on a DOCS+standard lock"
 assert_contains "  refusal names docsScope standard" "$ERR" "standard"
 
 # CODE_REVIEW_SKIPPED allowed on DOCS+tracker-only.
-R="$TMP/tr-docs-tonly"; LK="$R/.task-locks/d3.lock.json"
+R="$(make_repo)"; LK="$R/.task-locks/d3.lock.json"
 run_flow --root "$R" new d3 --agent mgr --surface DOCS
 mod_lock "$LK" 'lock["roles"]["predicted"]["docsScope"] = "tracker-only"'
+git_branch "$R" ai/d3
+feature_commit "$R" "Tasks/9000/t.md" "task"
+run_flow classify "$LK" --surface DOCS --class STANDARD --agent cls
 run_flow transition "$LK" IMPLEMENTATION_COMPLETE --agent tw
 run_flow transition "$LK" CODE_REVIEW_SKIPPED --agent tw --reason "tracker-only"
 assert_ok "CODE_REVIEW_SKIPPED allowed on DOCS+tracker-only"
@@ -206,8 +225,10 @@ run_flow transition "$LK" QA_SKIPPED --agent tw
 assert_ok "  and QA_SKIPPED via CODE_REVIEW_SKIPPED -> QA_SKIPPED"
 
 # CODE_REVIEW_SKIPPED allowed on NONE (existing skip path).
-R="$TMP/tr-none"; LK="$R/.task-locks/n1.lock.json"
+R="$(make_repo)"; LK="$R/.task-locks/n1.lock.json"
 run_flow --root "$R" new n1 --agent mgr --surface NONE
+git_branch "$R" ai/n1
+run_flow classify "$LK" --surface NONE --class STANDARD --agent cls
 run_flow transition "$LK" IMPLEMENTATION_COMPLETE --agent ref
 run_flow transition "$LK" CODE_REVIEW_SKIPPED --agent ref --reason "skills-only"
 assert_ok "CODE_REVIEW_SKIPPED allowed on NONE"
@@ -215,16 +236,23 @@ run_flow transition "$LK" QA_SKIPPED --agent ref
 assert_ok "  and QA_SKIPPED on NONE"
 
 # QA_SKIPPED refused on CODE and MIXED.
-R="$TMP/tr-code-qa"; LK="$R/.task-locks/c2.lock.json"
+R="$(make_repo)"; LK="$R/.task-locks/c2.lock.json"
 run_flow --root "$R" new c2 --agent mgr --surface CODE
+git_branch "$R" ai/c2
+feature_commit "$R" "src/app.py" "print(1)"
+run_flow classify "$LK" --surface CODE --class STANDARD --agent cls
 run_flow transition "$LK" IMPLEMENTATION_COMPLETE --agent dev
 run_flow transition "$LK" CODE_REVIEW_REQUESTED --agent dev
 run_flow transition "$LK" CODE_REVIEW_APPROVED --agent rev
 run_flow transition "$LK" QA_SKIPPED --agent rev
 assert_refused "QA_SKIPPED refused on a CODE lock"
 
-R="$TMP/tr-mixed-qa"; LK="$R/.task-locks/m1.lock.json"
+R="$(make_repo)"; LK="$R/.task-locks/m1.lock.json"
 run_flow --root "$R" new m1 --agent mgr --surface MIXED
+git_branch "$R" ai/m1
+feature_commit "$R" "Docs/note.md" "d"
+feature_commit "$R" "src/app.py" "print(1)"
+run_flow classify "$LK" --surface MIXED --class STANDARD --agent cls
 run_flow transition "$LK" IMPLEMENTATION_COMPLETE --agent dev
 run_flow transition "$LK" CODE_REVIEW_REQUESTED --agent dev
 run_flow transition "$LK" CODE_REVIEW_APPROVED --agent rev
@@ -232,8 +260,11 @@ run_flow transition "$LK" QA_SKIPPED --agent rev
 assert_refused "QA_SKIPPED refused on a MIXED lock"
 
 # --force passes both refusals and records "forced": true in history.
-R="$TMP/tr-forced"; LK="$R/.task-locks/c3.lock.json"
+R="$(make_repo)"; LK="$R/.task-locks/c3.lock.json"
 run_flow --root "$R" new c3 --agent mgr --surface CODE
+git_branch "$R" ai/c3
+feature_commit "$R" "src/app.py" "print(1)"
+run_flow classify "$LK" --surface CODE --class STANDARD --agent cls
 run_flow transition "$LK" IMPLEMENTATION_COMPLETE --agent dev
 run_flow transition "$LK" CODE_REVIEW_SKIPPED --agent dev --force --reason "user waiver"
 assert_ok "CODE_REVIEW_SKIPPED passes with --force on CODE"
@@ -242,19 +273,53 @@ run_flow transition "$LK" QA_SKIPPED --agent dev --force --reason "user waiver"
 assert_ok "QA_SKIPPED passes with --force on CODE"
 assert_json "  history records forced: true" "$LK" 'lock["history"][-1]["forced"]' 'true'
 
-# Legacy lock (no surface fields) keeps today's semantics.
-R="$TMP/tr-legacy"; LK="$R/.task-locks/lg1.lock.json"
+# Task 0053 defect 1: review-gate entry requires classification. A valid
+# predicted surface (the qt-iskinflow-e2e-docs live case) must NOT stand in
+# for a verified changeSurface at CODE_REVIEW_REQUESTED / AWAITING_REVIEW.
+R="$(make_repo)"; LK="$R/.task-locks/g1.lock.json"
+run_flow --root "$R" new g1 --agent mgr --surface DOCS
+run_flow transition "$LK" IMPLEMENTATION_COMPLETE --agent tw
+run_flow transition "$LK" CODE_REVIEW_REQUESTED --agent tw
+assert_refused "review entry refuses while changeSurface is null (predicted present)"
+assert_contains "  refusal points at flow classify" "$ERR" "flow classify"
+assert_contains "  refusal names the predicted surface" "$ERR" "DOCS"
+run_flow transition "$LK" AWAITING_REVIEW --agent tw
+assert_refused "AWAITING_REVIEW refuses unclassified too"
+run_flow transition "$LK" CODE_REVIEW_REQUESTED --agent tw --force --reason "user waiver"
+assert_ok "  review entry passes with --force (waiver)"
+assert_json "  forced: true recorded" "$LK" 'lock["history"][-1]["forced"]' 'true'
+
+# ... and without a predicted surface (legacy shape): the refusal persists,
+# and classification (any verified surface) unblocks the gate.
+R="$(make_repo)"; LK="$R/.task-locks/g2.lock.json"
+run_flow --root "$R" new g2 --agent mgr
+run_flow transition "$LK" IMPLEMENTATION_COMPLETE --agent dev
+run_flow transition "$LK" CODE_REVIEW_REQUESTED --agent dev
+assert_refused "review entry refuses while changeSurface is null (no predicted)"
+assert_contains "  refusal points at flow classify" "$ERR" "flow classify"
+git_branch "$R" ai/g2
+run_flow classify "$LK" --surface NONE --class STANDARD --agent cls
+run_flow transition "$LK" CODE_REVIEW_REQUESTED --agent dev
+assert_ok "classification unblocks review entry (no-predicted shape)"
+
+# Legacy lock (no surface fields): review-gate entry requires classification
+# like any other (task 0053); the downstream skip path itself is unchanged.
+R="$(make_repo)"; LK="$R/.task-locks/lg1.lock.json"
 run_flow --root "$R" new lg1 --agent mgr
 run_flow transition "$LK" IMPLEMENTATION_COMPLETE --agent dev
 run_flow transition "$LK" CODE_REVIEW_SKIPPED --agent dev
-assert_ok "legacy lock: CODE_REVIEW_SKIPPED unchanged"
+assert_refused "legacy lock: unclassified CODE_REVIEW_SKIPPED refuses (0053)"
+run_flow transition "$LK" CODE_REVIEW_SKIPPED --agent dev --force --reason "legacy waiver"
+assert_ok "legacy lock: CODE_REVIEW_SKIPPED passes with --force"
 run_flow transition "$LK" QA_SKIPPED --agent dev
 assert_ok "legacy lock: CODE_REVIEW_SKIPPED -> QA_SKIPPED unchanged"
 
 # MERGED follow-up refusal routes findings by surface (0041 review round-2
 # disposition item): docs findings must not be told to go back to the coder.
-R="$TMP/tr-followup"; LK="$R/.task-locks/f1.lock.json"
+R="$(make_repo)"; LK="$R/.task-locks/f1.lock.json"
 run_flow --root "$R" new f1 --agent mgr
+git_branch "$R" ai/f1
+run_flow classify "$LK" --surface NONE --class STANDARD --agent cls
 run_flow transition "$LK" IMPLEMENTATION_COMPLETE --agent dev
 run_flow transition "$LK" AWAITING_REVIEW --agent dev
 run_flow transition "$LK" CODE_REVIEW_APPROVED --agent rev
@@ -486,6 +551,86 @@ run_flow --root "$HR" new 9113 --agent mgr --branch no-such-branch --surface COD
 run_flow classify "$HR/.task-locks/9113.lock.json" --surface CODE --class STANDARD --agent cls --repo "$IR"
 assert_refused "unknown branch in the --repo diff repo refuses"
 assert_contains "  refusal names the branch and repo" "$ERR" "not found in"
+
+# --- task 0053 defect 2: post-merge classification --------------------------
+# After the merge, `main...branch` collapses (merge-base == branch tip); the
+# pre-0053 derive reported NONE and the assertion check turned that into a
+# misleading mismatch. Derivation now recovers the branch's change set from
+# the merge commit's first-parent diff (--no-ff convention); a branch fully
+# absorbed without a merge commit (fast-forward) refuses with an explicit
+# too-late message instead.
+
+# --no-ff merge: first-parent derivation from the merge commit.
+MR="$(make_repo)"
+git_branch "$MR" feature
+feature_commit "$MR" "src/app.py" "print(1)"
+git -C "$MR" checkout -q main
+git -C "$MR" merge -q --no-ff -m "merge feature" feature
+feature_commit "$MR" "Docs/late.md" "post-merge main commit"
+run_flow --root "$MR" new 9114 --agent mgr --branch feature --surface CODE
+LK="$MR/.task-locks/9114.lock.json"
+run_flow classify "$LK" --surface CODE --class STANDARD --agent cls
+assert_ok "post-merge classify derives from the merge commit's first-parent diff"
+assert_json "  changeSurface set from the recovered diff" "$LK" 'lock["changeSurface"]' '"CODE"'
+assert_json "  code path counted from the first-parent diff" "$LK" \
+  'lock["history"][-1]["classification"]["codePaths"]' '1'
+assert_json "  postMerge evidence names the merge commit" "$LK" \
+  'bool(lock["history"][-1]["classification"]["postMerge"])' 'true'
+assert_json "  reason names the post-merge derivation" "$LK" \
+  '"post-merge" in lock["history"][-1]["reason"]' 'true'
+
+# The motivating retro shape (qt-iskinflow-e2e-docs): a Tasks/**-only branch
+# merged --no-ff classifies DOCS post-merge — not a derived-NONE mismatch.
+DR="$(make_repo)"
+git_branch "$DR" docs-branch
+feature_commit "$DR" "Tasks/9003/task.md" "task"
+git -C "$DR" checkout -q main
+git -C "$DR" merge -q --no-ff -m "merge docs-branch" docs-branch
+run_flow --root "$DR" new 9115 --agent mgr --branch docs-branch --surface DOCS
+LK="$DR/.task-locks/9115.lock.json"
+run_flow classify "$LK" --surface DOCS --class STANDARD --agent cls
+assert_ok "post-merge Tasks/-only branch derives DOCS (no NONE mismatch)"
+assert_json "  docs path counted" "$LK" 'lock["history"][-1]["classification"]["docsPaths"]' '1'
+run_flow classify "$LK" --surface DOCS --class STANDARD --docs-scope tracker-only --agent cls
+assert_ok "  tracker-only scope stays verifiable post-merge"
+
+# Cross-repo topology: --repo derivation composes with the merge lookup.
+HR2="$(make_repo)"
+IR2="$(make_repo)"
+git_branch "$IR2" feature
+feature_commit "$IR2" "src/app.py" "print(1)"
+git -C "$IR2" checkout -q main
+git -C "$IR2" merge -q --no-ff -m "merge feature" feature
+run_flow --root "$HR2" new 9117 --agent mgr --branch feature --surface CODE
+run_flow classify "$HR2/.task-locks/9117.lock.json" --surface CODE --class STANDARD --agent cls --repo "$IR2"
+assert_ok "cross-repo post-merge classify derives from the impl merge commit"
+assert_json "  postMerge recorded across --repo" \
+  "$HR2/.task-locks/9117.lock.json" \
+  'bool(lock["history"][-1]["classification"]["postMerge"])' 'true'
+
+# Fast-forward absorption: no merge commit exists, the fork point is gone —
+# refuse explicitly instead of a derived-NONE mismatch.
+FR="$(make_repo)"
+git_branch "$FR" ff-branch
+feature_commit "$FR" "src/ff.py" "print(2)"
+git -C "$FR" checkout -q main
+git -C "$FR" merge -q --ff-only ff-branch
+feature_commit "$FR" "Docs/after-ff.md" "advance main past the ff"
+run_flow --root "$FR" new 9116 --agent mgr --branch ff-branch --surface CODE
+run_flow classify "$FR/.task-locks/9116.lock.json" --surface CODE --class STANDARD --agent cls
+assert_refused "ff-merged branch refuses classification"
+assert_contains "  refusal says it is too late" "$ERR" "too late"
+assert_not_contains "  refusal is not a derived-NONE mismatch" "$ERR" "derived NONE"
+
+# A fresh branch at the main tip (no commits yet) still classifies NONE —
+# the ambiguous empty diff must not be mistaken for a merged branch.
+ER="$(make_repo)"
+git_branch "$ER" fresh
+run_flow --root "$ER" new 9118 --agent mgr --branch fresh --surface NONE
+run_flow classify "$ER/.task-locks/9118.lock.json" --surface NONE --class STANDARD --agent cls
+assert_ok "fresh branch at the main tip still classifies NONE"
+assert_json "  no post-merge evidence on a live branch" "$ER/.task-locks/9118.lock.json" \
+  'lock["history"][-1]["classification"]["postMerge"]' 'null'
 
 # ---------------------------------------------------------------------------
 section "5. Path-class pattern semantics (unit)"
@@ -936,14 +1081,21 @@ section "10. followups — closed-followups convention + markdown-aware scan (00
 
 # Each case walks a fresh lock to REFLECTION_COMPLETE, writes one reflection
 # artifact, then attempts the MERGED transition — the follow-up gate.
-fu_prep() { # fu_prep <dir> <task>
-  run_flow --root "$1" new "$2" --agent mgr
-  run_flow transition "$1/.task-locks/$2.lock.json" IMPLEMENTATION_COMPLETE --agent dev
-  run_flow transition "$1/.task-locks/$2.lock.json" AWAITING_REVIEW --agent dev
-  run_flow transition "$1/.task-locks/$2.lock.json" CODE_REVIEW_APPROVED --agent rev
-  run_flow transition "$1/.task-locks/$2.lock.json" AWAITING_QA --agent qa
-  run_flow transition "$1/.task-locks/$2.lock.json" QA_PASSED --agent qa
-  run_flow transition "$1/.task-locks/$2.lock.json" REFLECTION_COMPLETE --agent ref
+# Since 0053 the review gate requires classification, so the prep classifies
+# first: a fresh branch at the main tip (empty diff, NONE surface).
+fu_prep() { # fu_prep <task> -> prints a repo path with the lock at REFLECTION_COMPLETE
+  local R
+  R="$(make_repo)"
+  run_flow --root "$R" new "$1" --agent mgr
+  git -C "$R" branch -q "ai/$1" main
+  run_flow classify "$R/.task-locks/$1.lock.json" --surface NONE --class STANDARD --agent cls
+  run_flow transition "$R/.task-locks/$1.lock.json" IMPLEMENTATION_COMPLETE --agent dev
+  run_flow transition "$R/.task-locks/$1.lock.json" AWAITING_REVIEW --agent dev
+  run_flow transition "$R/.task-locks/$1.lock.json" CODE_REVIEW_APPROVED --agent rev
+  run_flow transition "$R/.task-locks/$1.lock.json" AWAITING_QA --agent qa
+  run_flow transition "$R/.task-locks/$1.lock.json" QA_PASSED --agent qa
+  run_flow transition "$R/.task-locks/$1.lock.json" REFLECTION_COMPLETE --agent ref
+  printf '%s\n' "$R"
 }
 fu_art() { # fu_art <dir> <task> (artifact body on stdin)
   mkdir -p "$1/.task-locks/artifacts/$2"
@@ -951,7 +1103,7 @@ fu_art() { # fu_art <dir> <task> (artifact body on stdin)
 }
 
 # Plain open box refuses (baseline unchanged).
-R="$TMP/fu-open"; fu_prep "$R" o1
+R="$(fu_prep o1)"
 fu_art "$R" o1 <<'EOF'
 # Reflection
 - [ ] real open item
@@ -963,7 +1115,7 @@ assert_contains "  refusal advertises the strikethrough closure" "$ERR" "counts 
 
 # Fully struck-through box passes: closed/superseded without claiming
 # completion (the closed-followups convention, 0042 acceptance).
-R="$TMP/fu-struck"; fu_prep "$R" s1
+R="$(fu_prep s1)"
 fu_art "$R" s1 <<'EOF'
 # Reflection
 - [ ] ~~finding: matcher regex path~~
@@ -972,7 +1124,7 @@ run_flow transition "$R/.task-locks/s1.lock.json" MERGED --agent ref
 assert_ok "fully struck-through box passes MERGED (closed-followups convention)"
 
 # - [x] keeps passing (checked boxes untouched).
-R="$TMP/fu-checked"; fu_prep "$R" c1
+R="$(fu_prep c1)"
 fu_art "$R" c1 <<'EOF'
 # Review
 - [x] fixed item
@@ -981,7 +1133,7 @@ run_flow transition "$R/.task-locks/c1.lock.json" MERGED --agent ref
 assert_ok "- [x] box still passes MERGED"
 
 # Marker in an inline code span is prose, not an item.
-R="$TMP/fu-span"; fu_prep "$R" sp1
+R="$(fu_prep sp1)"
 fu_art "$R" sp1 <<'EOF'
 # Reflection
 The gate scans for `- [ ]` items in the task's artifacts.
@@ -990,7 +1142,7 @@ run_flow transition "$R/.task-locks/sp1.lock.json" MERGED --agent ref
 assert_ok "marker inside an inline code span is not an item"
 
 # Marker in a fenced block is code, not an item.
-R="$TMP/fu-fence"; fu_prep "$R" f1
+R="$(fu_prep f1)"
 fu_art "$R" f1 <<'EOF'
 # Reflection
 Example scan output:
@@ -1003,7 +1155,7 @@ run_flow transition "$R/.task-locks/f1.lock.json" MERGED --agent ref
 assert_ok "marker inside a fenced block is not an item"
 
 # Partial strikethrough is still open (the whole item text must be struck).
-R="$TMP/fu-partial"; fu_prep "$R" p1
+R="$(fu_prep p1)"
 fu_art "$R" p1 <<'EOF'
 # Reflection
 - [ ] ~~part~~ and part
@@ -1012,7 +1164,7 @@ run_flow transition "$R/.task-locks/p1.lock.json" MERGED --agent ref
 assert_refused "partial strikethrough is still open"
 
 # A box that merely ends struck (leading text unstruck) is still open.
-R="$TMP/fu-tailstruck"; fu_prep "$R" p2
+R="$(fu_prep p2)"
 fu_art "$R" p2 <<'EOF'
 # Reflection
 - [ ] wording updated ~~per round 2~~
@@ -1023,7 +1175,7 @@ assert_refused "box whose item text does not start struck is still open"
 # Multi-fragment strikethrough stays open: the struck core must be a single
 # fragment — GFM ends the strike at the inner ~~, leaving the middle unstruck
 # (review r1 Important 1).
-R="$TMP/fu-multifrag"; fu_prep "$R" p3
+R="$(fu_prep p3)"
 fu_art "$R" p3 <<'EOF'
 # Reflection
 - [ ] ~~fixed~~ unresolved ~~tail~~
@@ -1031,7 +1183,7 @@ EOF
 run_flow transition "$R/.task-locks/p3.lock.json" MERGED --agent ref
 assert_refused "strikethrough with unstruck middle text is still open"
 
-R="$TMP/fu-twostruck"; fu_prep "$R" p4
+R="$(fu_prep p4)"
 fu_art "$R" p4 <<'EOF'
 # Reflection
 - [ ] ~~a~~ and ~~b~~
@@ -1040,7 +1192,7 @@ run_flow transition "$R/.task-locks/p4.lock.json" MERGED --agent ref
 assert_refused "two struck fragments joined by a conjunction stay open"
 
 # Struck-through box with a trailing parenthetical annotation passes.
-R="$TMP/fu-annot"; fu_prep "$R" a1
+R="$(fu_prep a1)"
 fu_art "$R" a1 <<'EOF'
 # Reflection
 - [ ] ~~finding: matcher regex path~~ (fixed in IskInFlow 3184125)
@@ -1050,7 +1202,7 @@ assert_ok "struck-through box with a trailing annotation passes"
 
 # Multi-line fence containing markers passes: fence state is tracked across
 # lines, so the markers never read as items.
-R="$TMP/fu-multifence"; fu_prep "$R" m1
+R="$(fu_prep m1)"
 fu_art "$R" m1 <<'EOF'
 # Reflection
 Captured scanner output across lines:
@@ -1067,7 +1219,7 @@ run_flow transition "$R/.task-locks/m1.lock.json" MERGED --agent ref
 assert_ok "multi-line fence containing markers is not an item"
 
 # An open box AFTER a closed fence still refuses (the fence really closed).
-R="$TMP/fu-afterfence"; fu_prep "$R" m2
+R="$(fu_prep m2)"
 fu_art "$R" m2 <<'EOF'
 # Reflection
 ```
@@ -1079,7 +1231,7 @@ run_flow transition "$R/.task-locks/m2.lock.json" MERGED --agent ref
 assert_refused "open box after a closed fence still refuses"
 
 # ~~~ fences are tracked like backtick fences.
-R="$TMP/fu-tilde"; fu_prep "$R" t1
+R="$(fu_prep t1)"
 fu_art "$R" t1 <<'EOF'
 # Reflection
 ~~~
@@ -1090,7 +1242,7 @@ run_flow transition "$R/.task-locks/t1.lock.json" MERGED --agent ref
 assert_ok "tilde fences are tracked like backtick fences"
 
 # Indented open box still refuses (list nesting does not hide an item).
-R="$TMP/fu-indent"; fu_prep "$R" i1
+R="$(fu_prep i1)"
 fu_art "$R" i1 <<'EOF'
 # Reflection
   - [ ] indented open item
@@ -1099,7 +1251,7 @@ run_flow transition "$R/.task-locks/i1.lock.json" MERGED --agent ref
 assert_refused "indented open box still refuses"
 
 # --force semantics unchanged: a waiver still bypasses the gate.
-R="$TMP/fu-force"; fu_prep "$R" w1
+R="$(fu_prep w1)"
 fu_art "$R" w1 <<'EOF'
 # Reflection
 - [ ] waived item
