@@ -73,7 +73,7 @@ Review artifacts must record their **round number**; after 2 rounds ending in `R
 ### Discovery
 ```bash
 git fetch --all
-git show origin/ai/<task-id>-...:task-locks/<task-id>.lock.json
+git show origin/ai/<task-id>-...:.task-locks/<task-id>.lock.json
 # Look for: "workStage": "AWAITING_REVIEW"
 ```
 

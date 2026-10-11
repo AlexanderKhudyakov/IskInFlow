@@ -54,7 +54,7 @@ The QA report records the surface and the mode
 ### Discovery
 ```bash
 git fetch --all
-git show origin/ai/<task-id>-...:task-locks/<task-id>.lock.json
+git show origin/ai/<task-id>-...:.task-locks/<task-id>.lock.json
 # Look for: "workStage": "AWAITING_QA" or "CODE_REVIEW_APPROVED"
 ```
 

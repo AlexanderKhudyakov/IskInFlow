@@ -6,7 +6,7 @@ Before executing any step in this command, consult `guides/mcp_first_tooling.md`
 ## Purpose
 Select the next task(s) from the current milestone and run the standard task pipeline on them. Default mode is **delegation**: the Manager orchestrates, executor roles run as subagents. Multi-agent top-level parallel execution remains supported.
 
-**Stage mechanics (gates, review/QA loops with circuit breakers, risk classes, artifacts, merge) are defined once in [`guides/pipeline.md`](../guides/pipeline.md) — this command defers to it.** Role contracts: `roles/manager.md`, `roles/coder.md`, `roles/code_reviewer.md`, `roles/qa_engineer.md`, `roles/reflector.md`.
+**Stage mechanics (gates, review/QA loops with circuit breakers, risk classes, artifacts, merge) are defined once in [`guides/pipeline.md`](../guides/pipeline.md) — this command defers to it.** Role contracts: `roles/manager.md`, `roles/researcher.md`, `roles/coder.md`, `roles/tech_writer.md`, `roles/code_reviewer.md`, `roles/qa_engineer.md`, `roles/reflector.md`.
 
 Lane parameters for this command (**full lane**): task IDs `<NNN>` from a development plan; branch `ai/<task-id>-<short-description>`; planning artifact = the plan's task file.
 
@@ -51,7 +51,7 @@ Key rules:
   ```bash
   git fetch --all
   # Check feature branches for tasks awaiting review/QA
-  git show origin/ai/<task-id>-...:task-locks/<task-id>.lock.json
+  git show origin/ai/<task-id>-...:.task-locks/<task-id>.lock.json
   ```
 - If tasks are awaiting review/QA and this agent is the designated reviewer: perform the review/QA first, then proceed to new implementation.
 
@@ -73,7 +73,7 @@ Key rules:
 - **Lock-first push**: the Manager commits the lock scoped to
   `.task-locks/**` + `Tasks/**` and pushes `main` before implementation
   begins (Part 5: Batch Lock Acquisition).
-- **Tracker registry**: for each selected task, ensure a registry entry exists in the host task tracker (`Tasks/NNNN-<slug>/task.md`, format: [`guides/task_tracker.md`](../guides/task_tracker.md)): create it if missing (`Tasks/new.sh <type> <slug> "Title"`), fill `spec:` with the development-plan path. The plan file remains the planning artifact of the full lane; the registry entry is the task's user-facing record. **The Manager never hand-edits `Tasks/**`** — entry creation runs through `Tasks/new.sh`; `branch:`/`lock:` fills and status flips go through a tech_writer round or host scripts (`Tasks/*.sh`); the Manager triggers them and verifies the result.
+- **Tracker registry**: for each selected task, ensure a registry entry exists in the host task tracker (`Tasks/NNNN-<slug>/task.md`, format: [`guides/task_tracker.md`](../guides/task_tracker.md)): create it if missing (`Tasks/new.sh <type> <slug> "Title"`), fill `spec:` with the development-plan path. The plan file remains the planning artifact of the full lane; the registry entry is the task's user-facing record. **The Manager never hand-edits `Tasks/**`** — entry creation runs through `Tasks/new.sh`; `branch:`/`lock:`/`spec:` fills and status flips go through a tech_writer round or host scripts (`Tasks/*.sh`); the Manager triggers them and verifies the result.
 
 ### Steps 3–9: Run the pipeline (all roles)
 Run [`guides/pipeline.md`](../guides/pipeline.md) with **lane = full**: lock acquisition and TDD implementation on a worktree feature branch (Coder), gate classification (Manager), read-only cross-context review, QA on the approved commit, mandatory reflection, final merge and push with lock archival. Observe the circuit breakers (2 review rounds / 2 QA rounds → escalate to the user) and the coordination-commit batching discipline defined there.
@@ -98,9 +98,12 @@ triggered and verified by the Manager.
 - Final merge includes lock archival; `main` pushed; cleanup only after push confirmed
 
 ## Multi-Agent Notes
-Alternative to delegation mode: multiple top-level agents, each holding its
-own role marker (`IskInFlow/scripts/flow role set <role>`) and switching hats
-between stages.
+Alternative to delegation mode: multiple top-level agents, each switching hats
+between stages (`IskInFlow/scripts/flow role set <role>`). The marker and its
+audit trail are per clone, not per agent — one shared file
+(`<git-common-dir>/isk-role`) and one shared `IskInFlow/scripts/flow role log`
+— so per-agent role discipline in this mode is procedural (L0); parallel work
+that needs per-role enforcement runs as delegation-mode subagents.
 
 ### Agent Pipeline (2 agents)
 ```

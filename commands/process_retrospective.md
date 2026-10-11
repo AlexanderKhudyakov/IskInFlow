@@ -1,7 +1,7 @@
 # Command: Process Retrospective
 
 ## MCP-First Requirement
-Before executing any step in this command, consult `guides/mcp_first_tooling.md`. MCP and network tools belong to the **executor subagents**: the reflector and researcher profiles use them per their own role contracts. The **Manager itself must not** — network and `mcp__*` tools are denied to the manager role; it works through delegation only.
+Before executing any step in this command, consult `guides/mcp_first_tooling.md`. MCP and network tools belong to the **executor subagents**: researcher, coder, and planner profiles use them per their own role contracts. The **Manager itself must not** — network and `mcp__*` tools are denied to the manager role; it works through delegation only.
 
 ## Purpose
 Periodically analyze the workflow **itself** — not the code — using the lock-history event log, and propose concrete improvements to IskInFlow (or the host's process configuration). The framework debugs itself with its own data.

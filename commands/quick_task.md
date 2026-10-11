@@ -1,12 +1,12 @@
 # Command: Quick Task
 
 ## MCP-First Requirement
-Before executing any step in this command, consult `guides/mcp_first_tooling.md`. MCP and network tools belong to the **executor subagents**: researcher, coder, tech_writer, and other executor profiles use them per their own role contracts. The **Manager itself must not** — network and `mcp__*` tools are denied to the manager role; it works through a mechanical allowlist and delegation only.
+Before executing any step in this command, consult `guides/mcp_first_tooling.md`. MCP and network tools belong to the **executor subagents**: researcher, coder, and planner profiles use them per their own role contracts. The **Manager itself must not** — network and `mcp__*` tools are denied to the manager role; it works through a mechanical allowlist and delegation only.
 
 ## Purpose
 Take a simple user request from chat and run the entire pipeline end-to-end: plan, implement, review, QA, and merge — all in one command. Default mode is **delegation**: the Manager orchestrates, executor roles run as subagents. Multi-agent top-level parallel execution remains supported.
 
-**Stage mechanics (gates, review/QA loops with circuit breakers, risk classes, artifacts, merge) are defined once in [`guides/pipeline.md`](../guides/pipeline.md) — this command defers to it.** Role contracts: `roles/manager.md`, `roles/coder.md`, `roles/code_reviewer.md`, `roles/qa_engineer.md`, `roles/reflector.md`.
+**Stage mechanics (gates, review/QA loops with circuit breakers, risk classes, artifacts, merge) are defined once in [`guides/pipeline.md`](../guides/pipeline.md) — this command defers to it.** Role contracts: `roles/manager.md`, `roles/researcher.md`, `roles/coder.md`, `roles/tech_writer.md`, `roles/code_reviewer.md`, `roles/qa_engineer.md`, `roles/reflector.md`.
 
 Lane parameters for this command (**quick lane**): task IDs `qt-<short-name>` (prevents collision with numbered development-plan tasks); branch `ai/qt-<short-name>`; the planning artifact is a **tracker task** — `Tasks/NNNN-<slug>/task.md`, format: [`guides/task_tracker.md`](../guides/task_tracker.md). Locks and pipeline execution artifacts (review/QA/reflection) still live in `.task-locks/`.
 
@@ -42,7 +42,7 @@ Key rules:
   researcher-profile subagent producing read-only, cited reports in
   `.task-locks/artifacts/<task-id>/research-*.md`. Decisions stay with the
   Manager; its own reads are limited to orchestration state (locks, tracker,
-  `IskInFlow/**`).
+  plans, `IskInFlow/**`).
 
 ### Step 1: Understand and Plan (Manager)
 1. Analyze the user's request to understand the problem and desired outcome.
