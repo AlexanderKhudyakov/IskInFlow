@@ -29,8 +29,10 @@ Protocol (task 0043 spike decisions a/b, binding):
     denied; `git commit -a/--all/-i`, which implicitly stage ALL tracked
     modifications, are denied; a pathspec-free `git commit` of already-staged
     content is allowed; pathspecs are lexically resolved so `..` traversal
-    cannot escape the prefixes). Per the cross-repo execution procedure
-    (host-repo path: .agents/skills/procedure/
+    cannot escape the prefixes; tokens are quote-aware, so a quoted
+    multi-word `git commit -m "<message>"` value is one token, never a
+    stream of pathspec candidates — task 0049). Per the cross-repo execution
+    procedure (host-repo path: .agents/skills/procedure/
     iskinflow-cross-repo-task-execution.md — that path lives in the KVGA host
     repo, not in this repository) `git -C IskInFlow[/...] <verb>` is allowed
     for the mechanical verbs {fetch, pull, push, status, log, merge,
@@ -101,8 +103,9 @@ _GIT_VALUE_FLAGS = {
     "--reuse-message", "--fixup", "--squash", "--author", "--date",
     "--cleanup", "--pathspec-from-file", "-c",
 }
-# Tokens carrying substitution/quote residue are shell-expansion artifacts,
-# not parseable pathspecs — ignored by the scope check (documented envelope).
+# Tokens carrying substitution residue are shell-expansion artifacts, not
+# parseable pathspecs — ignored by the scope check (documented envelope).
+# Quote residue is handled upstream by _tokenize (task 0049).
 _GIT_PATH_UNSAFE = re.compile(r"[$`()]")
 # git commit flags that implicitly stage ALL tracked modifications repo-wide
 # — the same whole-tree staging class as `git add -u`, denied on commit.
@@ -207,6 +210,37 @@ def _strip_env_prefix(tokens):
     return tokens
 
 
+def _tokenize(segment):
+    """Quote-aware best-effort tokenization of one shell segment (task 0049,
+    spec §4.6.2): whitespace splits outside quote spans; a single- or
+    double-quoted span joins the surrounding token and its quote characters
+    are dropped, so `git commit -m "multi word message"` yields ONE value
+    token after -m instead of a stream of pathspec candidates. An unclosed
+    quote swallows the rest of the segment. Substitution is not expanded —
+    $/backtick/paren residue is still screened by _GIT_PATH_UNSAFE before a
+    token is treated as a pathspec."""
+    tokens = []
+    current = []
+    quote = None
+    for ch in segment:
+        if quote is not None:
+            if ch == quote:
+                quote = None
+            else:
+                current.append(ch)
+        elif ch in "\"'":
+            quote = ch
+        elif ch.isspace():
+            if current:
+                tokens.append("".join(current))
+                current = []
+        else:
+            current.append(ch)
+    if current:
+        tokens.append("".join(current))
+    return tokens
+
+
 def _normalize_rel(path):
     path = path.strip()
     while path.startswith("./"):
@@ -242,9 +276,11 @@ def _manager_add_commit_scoped(tokens):
     denied; `git commit -a/--all/-i` implicitly stage ALL tracked
     modifications and are denied; a `git commit` without pathspecs or
     implicit-staging flags is allowed (already-staged content only).
-    Substitution residue (unbalanced quotes, $, backticks, parens) is not a
-    parseable pathspec and is ignored — segment allowlist, not adversarial
-    security (spec §4.6.2)."""
+    Tokens are quote-aware (task 0049): a quoted multi-word -m/--message/-F
+    value is one token, consumed whole by the value-flag rule instead of
+    leaking trailing words as pathspec candidates. Substitution residue
+    ($, backticks, parens) is not a parseable pathspec and is ignored —
+    segment allowlist, not adversarial security (spec §4.6.2)."""
     positional = []
     args = tokens[2:]
     if tokens[1] == "commit" and any(
@@ -259,9 +295,10 @@ def _manager_add_commit_scoped(tokens):
         if arg.startswith("-"):
             i += 2 if arg in _GIT_VALUE_FLAGS else 1
             continue
-        cleaned = arg.replace('"', "").replace("'", "")
-        if not _GIT_PATH_UNSAFE.search(cleaned):
-            positional.append(cleaned)
+        # _tokenize already dropped quote characters; what remains is
+        # screened for substitution residue (documented envelope).
+        if not _GIT_PATH_UNSAFE.search(arg):
+            positional.append(arg)
         i += 1
     if tokens[1] == "add" and not positional:
         return False  # no pathspec: -A/-u/--all-style whole-tree staging
@@ -269,7 +306,7 @@ def _manager_add_commit_scoped(tokens):
 
 
 def _manager_segment_allowed(segment):
-    tokens = _strip_env_prefix(segment.split())
+    tokens = _strip_env_prefix(_tokenize(segment))
     if not tokens:
         return True
     cmd = tokens[0]

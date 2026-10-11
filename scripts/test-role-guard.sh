@@ -17,7 +17,8 @@
 #   9.  malformed payload -> fail-open (exit 0)
 #   10. flow role matrix JSON: every role, --classify semantics, unknown role
 #   11. manager git add/commit coordination scoping (lexical .. resolution,
-#       no implicit-staging commit flags) + cross-repo git -C verbs
+#       no implicit-staging commit flags) + quoted multi-word commit-message
+#       values (task 0049) + cross-repo git -C verbs
 #       (spec §3.4 + host-repo cross-repo execution procedure)
 #   12. unknown marker role -> fail-open + UNKNOWN-ROLE audit line
 #
@@ -536,6 +537,22 @@ run_guard "$R" "$(bash_payload "git commit --all -m x")"
 assert_deny "manager git: commit --all implicit staging denied"
 run_guard "$R" "$(bash_payload "git commit -i -m x")"
 assert_deny "manager git: commit -i implicit staging denied"
+
+# A quoted multi-word message is ONE value token after -m/--message, not a
+# stream of pathspec candidates (task 0049: every trailing word of a quoted
+# message used to be parsed as a pathspec and denied the manager).
+run_guard "$R" "$(bash_payload 'git commit -m "chore(lock): test multi-word message"')"
+assert_allow "manager git: multi-word quoted -m message allowed"
+run_guard "$R" "$(bash_payload 'git commit -m "chore(lock): acquire 0044 (agent-alpha, predicted DOCS - tech_writer)"')"
+assert_allow "manager git: message with parentheses/colons allowed"
+run_guard "$R" "$(bash_payload 'git commit -m "multi word message" Kanwa/Foo.swift')"
+assert_deny "manager git: -m plus explicit pathspec outside coordination denied"
+run_guard "$R" "$(bash_payload 'git commit -a -m "multi word message"')"
+assert_deny "manager git: -a implicit staging still denied with a multi-word message"
+run_guard "$R" "$(bash_payload 'git commit --all -m "multi word message"')"
+assert_deny "manager git: --all implicit staging still denied with a multi-word message"
+run_guard "$R" "$(bash_payload 'git commit -i -m "multi word message"')"
+assert_deny "manager git: -i implicit staging still denied with a multi-word message"
 
 # Cross-repo execution procedure (host-repo path: .agents/skills/procedure/
 # iskinflow-cross-repo-task-execution.md — that path lives in the KVGA host
