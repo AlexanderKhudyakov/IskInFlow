@@ -1,10 +1,21 @@
 # Command: Idea to Development Plan
 
 ## MCP-First Requirement
-Before executing any step in this command, consult `guides/mcp_first_tooling.md`. Enumerate available MCP servers and tools, and prefer them for discovery, validation, and execution tasks.
+Before executing any step in this command, consult `guides/mcp_first_tooling.md`. The rule binds the **planner subagent** — it runs the technology-selection lookups. The **Manager itself must not** use network or `mcp__*` tools at all: they are denied to the manager role; it orchestrates and verifies through delegation only.
 
 ## Purpose
 Convert a raw idea into a product spec, technical spec, and detailed development plan.
+
+## Session Shape (Manager)
+This session runs as the **Manager**: set the role marker once at start with
+`IskInFlow/scripts/flow role set manager --agent <agentId>` — delegation mode,
+with hat-switch fallback (`IskInFlow/scripts/flow role set <role>`) when no
+delegation runtime exists; absent marker = unrestricted. Phases 1–3 execute
+as **planner-profile subagents** (per `roles/planner.md`); a planner may
+dispatch researcher-profile subagents for large codebase surveys and keeps
+small direct lookups itself. The Manager orchestrates and verifies — it never
+authors the specs or plans itself. **The user approval gate between Phase 2
+and Phase 3 is unchanged**: the Manager presents the specs; the user decides.
 
 ## Inputs
 - Idea description or idea file path

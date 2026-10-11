@@ -11,7 +11,7 @@ This guide provides the definitive procedures for all git operations, task locki
 3. **Feature Branches**: Implementation happens on feature branches named `ai/<task-id>-<description>`
 4. **Single Source of Truth**: The lock file on `main` (remote) is authoritative for task status
 5. **Resumable Work**: Every checkpoint is recorded so work can be resumed if interrupted
-6. **Quality Gates**: Specific push points enforce code review and QA before merging
+6. **Quality Gates**: Specific push points enforce surface-gated review and QA before merging (staffing matrix in `guides/pipeline.md`)
 7. **Git Worktree (Required)**: All agents MUST use `git worktree` for every task to maintain isolated working copies and prevent file/artifact contamination
 8. **Push Main After Merge**: The final merge to `main` MUST be pushed to remote before any branch cleanup. Task is not complete until remote `main` is updated
 9. **Agent Identity**: Every agent has a fixed, human-readable name (e.g., `agent-alpha`). All lock operations record which agent performed them
@@ -163,7 +163,7 @@ All agents (whether working alone or parallel) use isolated worktrees, preventin
 
 ### Lock File Format (Schema v2)
 
-All lock files follow this schema. Fields marked *(v2)* are new for multi-agent support and are optional for backward compatibility with existing locks.
+All lock files follow this schema. Fields marked *(v2)* are schema-v2 additions and are optional for backward compatibility with existing locks.
 
 ```json
 {
@@ -179,7 +179,12 @@ All lock files follow this schema. Fields marked *(v2)* are new for multi-agent 
   "completedAt": "<ISO timestamp | null>",
   "agentId": "<agent-alpha | agent-beta | agent-gamma | ...>",
   "agentSession": "<random hex string per session>",
-  "implementedBy": "<agentId of implementing agent>",
+  "changeSurface": "<CODE | DOCS | MIXED | NONE | null>",
+  "roles": {
+    "predicted": { "surface": "DOCS", "implementers": ["tech_writer"], "reviewKind": "docs", "qa": "skipped", "docsScope": "standard" },
+    "actual": null
+  },
+  "implementedBy": "<agentId of implementing agent | null>",
   "reviewedBy": "<agentId of reviewing agent | null>",
   "qaBy": "<agentId of QA agent | null>",
   "history": [
@@ -214,9 +219,23 @@ All lock files follow this schema. Fields marked *(v2)* are new for multi-agent 
 |---|---|
 | `agentId` | Fixed human-readable name assigned by user or Manager: `agent-alpha`, `agent-beta`, `agent-gamma`, etc. |
 | `agentSession` | Short random hex (e.g., `a1b2c3d4`) generated at session startup. Distinguishes agent restarts from the same slot. |
-| `implementedBy` | `agentId` of the agent that performed implementation. Set when implementation starts. |
+| `implementedBy` | `agentId` of the agent that performed implementation. **Null at lock creation** — `flow new` no longer stamps the creating agent. Set by the **primary implementer at its `IMPLEMENTATION_COMPLETE` transition** (instruction in `roles/coder.md` / `roles/tech_writer.md`). |
 | `reviewedBy` | `agentId` of the agent that performed code review. Set when review starts. **Must differ from `implementedBy`** in multi-agent mode. |
 | `qaBy` | `agentId` of the agent that performed QA. Set when QA starts. **Must differ from `implementedBy`** in multi-agent mode. |
+
+#### Surface and Staffing Fields *(v2)*
+
+| Field | Description |
+|---|---|
+| `changeSurface` | Verified diff surface: `CODE`, `DOCS`, `MIXED`, or `NONE`. `null` at lock creation; set only by `flow classify` from the verified diff (`git diff --name-only main...<branch>`). |
+| `roles.predicted` | Predicted staffing, filled by `flow new --surface` at lock creation: `surface`, `implementers` (role names), `reviewKind` (`code` / `docs` / `mixed`), `qa` (`full` / `code-only` / `skipped`), `docsScope` (`standard` / `tracker-only`; matters for `DOCS` only). |
+| `roles.actual` | Same shape as `roles.predicted`; `null` until `flow classify` fills it at gate classification, with diff evidence in lock history. |
+
+Who implements and which gates run is the **staffing matrix** in
+[`guides/pipeline.md`](pipeline.md). A predicted `MIXED` that verifies as
+`CODE` or `DOCS` is a benign narrowing (recorded in history); any other
+predicted-vs-verified mismatch refuses — back into work or escalate to the
+user, never a silent re-staff.
 
 ### Valid Work Stage Values
 
@@ -229,20 +248,28 @@ Review stages:
 - `CODE_REVIEW_REQUESTED` – Submitted for code review (same agent or assigned reviewer)
 - `CODE_REVIEW_CHANGES_REQUESTED` – Review feedback received, fixes in progress
 - `CODE_REVIEW_APPROVED` – Code review approved ✅
-- `CODE_REVIEW_SKIPPED` – No code/test changes, review skipped with evidence
+- `CODE_REVIEW_SKIPPED` – Review skipped with evidence; *(v2)* surface-gated — allowed only for `NONE` and tracker-only `DOCS` (`flow transition` refuses it otherwise)
 
 QA stages:
 - `AWAITING_QA` – *(v2)* Review approved, waiting for a different agent to QA
 - `QA_REQUESTED` – Submitted for QA verification
 - `QA_FAILED` – QA found issues, fixes in progress
 - `QA_PASSED` – QA verification passed ✅
-- `QA_SKIPPED` – No code/test changes, QA skipped with evidence
+- `QA_SKIPPED` – QA skipped with evidence; *(v2)* surface-gated — allowed only when the surface runs no QA (`DOCS`, `NONE`; refused for `CODE`/`MIXED`)
 
 Reflection stages:
 - `REFLECTION_COMPLETE` – Reflection analysis done, skills extracted/updated
 
 Completion:
 - `MERGED` – Merged to `main` and pushed
+
+Checkpoints that must **not** move `workStage` — progress notes, corrections,
+review-round bookkeeping — are appended as plain history entries:
+
+```bash
+IskInFlow/scripts/flow note .task-locks/<task-id>.lock.json \
+    --text "<checkpoint text>" --agent <agentId>
+```
 
 #### Stage Transitions in Multi-Agent Mode
 
@@ -525,22 +552,30 @@ cat .task-locks/<task-id>.lock.json
 
 ### Lock Acquisition (Complete Sequence)
 
+The Manager acquires locks **mechanically** — `flow new` writes the lock file
+and records the predicted staffing (`roles.predicted`); no hand-authored lock
+JSON.
+
 ```bash
 # 1. Update main
 git checkout main && git pull origin main
 
-# 2. Create lock file with agentId
-# (see Lock File Format for full schema)
+# 2. Acquire the lock mechanically (records predicted staffing)
+IskInFlow/scripts/flow new <task-id> --agent <agentId> \
+    --surface CODE|DOCS|MIXED|NONE [--implementers role,role] \
+    [--name "<task name>"] [--branch ai/<task-id>-<desc>] \
+    [--plan <plan file>] [--milestone "<milestone>"]
 
-# 3. Commit lock file
-git add .task-locks/<task-id>.lock.json
+# 3. Tracker registry (triggered, not hand-edited)
+#    branch:/lock: fields + status: in-progress via a tech_writer round
+#    or Tasks/*.sh helper (Tasks/new.sh creates the entry earlier)
+
+# 4. Commit the lock (+ tracker entry) and push
+git add .task-locks/<task-id>.lock.json Tasks/<task-folder>/task.md
 git commit -m "chore(lock): acquire <task-id>"
+git push origin main    # retry loop Part 7 if rejected
 
-# 4. Push to remote (MANDATORY) — with retry loop for multi-agent
-git push origin main
-# If push rejected: see "Lock Acquisition Retry Loop" in Part 7
-
-# 5. Create feature branch and worktree
+# 5. Feature branch and worktree (unchanged)
 git branch ai/<task-id>-<short-description> main
 git worktree add ../<task-id>-worktree ai/<task-id>-<short-description>
 cd ../<task-id>-worktree
@@ -553,18 +588,31 @@ cd ../<task-id>-worktree
 > wrapper (a minimal `contents.xcworkspacedata` with a `FileRef` to
 > `Kanwa.xcodeproj`; xcodegen does not emit workspaces).
 
+Later in the task, at gate classification, the Manager records the **verified**
+surface and risk class from the branch diff (predicted-vs-verified rules in
+[`guides/pipeline.md`](pipeline.md)):
+
+```bash
+IskInFlow/scripts/flow classify <lock> --surface <S> \
+    --class STANDARD|CRITICAL [--docs-scope tracker-only] \
+    [--repo <path>] --agent <agentId>
+```
+
 ### Batch Lock Acquisition (Multi-Agent)
 
-When the Manager pre-assigns tasks to multiple agents:
+When the Manager pre-assigns tasks to multiple agents, run one `flow new` per
+task — each with its own predicted `--surface` and `agentId` — then commit all
+locks in one commit and push once:
 
 ```bash
 # 1. Update main
 git checkout main && git pull origin main
 
-# 2. Create ALL lock files in a single commit
-# .task-locks/<task-id-1>.lock.json  (agentId: "agent-alpha")
-# .task-locks/<task-id-2>.lock.json  (agentId: "agent-beta")
-# .task-locks/<task-id-3>.lock.json  (agentId: "agent-gamma")
+# 2. One mechanical acquisition per task (own --surface, own agent)
+IskInFlow/scripts/flow new <task-id-1> --agent agent-alpha --surface CODE \
+    [--implementers ...] [--name ...] [--branch ...] [--plan ...] [--milestone ...]
+IskInFlow/scripts/flow new <task-id-2> --agent agent-beta --surface DOCS [...]
+IskInFlow/scripts/flow new <task-id-3> --agent agent-gamma --surface MIXED [...]
 
 # 3. Commit all locks at once
 git add .task-locks/*.lock.json
@@ -575,6 +623,9 @@ git push origin main
 
 # 5. Each agent creates their own feature branch and worktree
 ```
+
+Batching is mandatory in multi-agent mode and preferred in single-agent mode
+(commit-noise discipline in [`guides/pipeline.md`](pipeline.md)).
 
 ### Final Merge (Complete Sequence)
 
@@ -624,11 +675,18 @@ All intermediate lock updates (stage transitions, review/QA results) are committ
 
 **All task artifacts must be committed before merging.** At the end of a task, run `git status` and ensure no `.task-locks/` files are untracked. Required artifacts per task:
 
-- `qt-<name>-brief.md` and `qt-<name>-task.md` (or `<task-id>` equivalents) — committed when locking
-- `.task-locks/artifacts/qt-<name>/review.md` — committed after code review
-- `.task-locks/artifacts/qt-<name>/qa-report.md` — committed after QA
-- `.task-locks/artifacts/qt-<name>/reflection.md` — committed after reflection
-- Any intermediate implementation notes or summaries
+- The tracker task folder (`Tasks/<task-id>/`) — committed when locking
+- `.task-locks/artifacts/<task-id>/review.md` — committed after review (where the surface runs review)
+- `.task-locks/artifacts/<task-id>/qa-report.md` — committed after QA (where the surface runs QA)
+- `.task-locks/artifacts/<task-id>/reflection.md` — committed after reflection (always)
+
+**Surface gating** ([`guides/pipeline.md`](pipeline.md)): `CODE` and `MIXED`
+require the review and QA reports; `DOCS` requires the docs `review.md`
+(`reviewKind: docs`) with QA skipped and the evidence recorded; tracker-only
+`DOCS` and `NONE` skip both gates with the evidence in lock history.
+`IskInFlow/scripts/flow validate .task-locks` is the mechanical checker.
+Delegation briefs are passed in subagent prompts, never committed as files
+([`roles/manager.md`](../roles/manager.md)).
 
 Forgetting to commit artifacts leaves orphaned untracked files and breaks the audit trail. Always stage everything in `.task-locks/` before the final merge commit.
 
@@ -640,18 +698,19 @@ and the `pre-push` gate (`scripts/pre-push.flow`) — run them first, then do th
 judgment checks (tests green) by hand:
 
 ```bash
-# Mechanical: schema, known stage, artifact presence (unless history records a skip)
+# Mechanical: schema, known stage, surface-aware artifact presence
 IskInFlow/scripts/flow validate .task-locks
 
 # Verify lock file shows REFLECTION_COMPLETE (on feature branch)
 cat .task-locks/<task-id>.lock.json | grep workStage
 # Must show: REFLECTION_COMPLETE
 
-# Verify review artifact exists
-ls .task-locks/artifacts/<task-id>/review.md
-
-# Verify QA report exists
-ls .task-locks/artifacts/<task-id>/qa-report.md
+# Review/QA artifact presence per surface — `flow validate` enforces this
+# mechanically. Do not assert qa-report.md unconditionally (a DOCS or NONE
+# task legitimately has none):
+#   CODE / MIXED              -> review.md + qa-report.md
+#   DOCS (docsScope standard) -> docs review.md, QA skipped
+#   tracker-only DOCS / NONE  -> skip evidence in lock history
 
 # Verify all tests pass
 # (Run project test suite)
@@ -787,16 +846,16 @@ When Agent A finishes implementation, it can hand off review to Agent B:
 1. Agent A: Commit all implementation + lock update to feature branch
 2. Agent A: Push feature branch to remote
    git push origin ai/<task-id>-<short-description>
-3. Agent A: Update lock on feature branch:
-   - workStage: AWAITING_REVIEW
-   - implementedBy: "agent-alpha"
+3. Agent A: Update lock on feature branch (`flow transition` to
+   AWAITING_REVIEW; `implementedBy` was already set at
+   IMPLEMENTATION_COMPLETE):
    - reviewedBy: null (available for pickup)
 4. Agent A: Move on to next task
 
 5. Agent B: Discover tasks awaiting review:
    - Fetch all remote branches
    - Read lock files from feature branches for AWAITING_REVIEW status
-   git show origin/ai/<task-id>-...:task-locks/<task-id>.lock.json
+   git show origin/ai/<task-id>-...:.task-locks/<task-id>.lock.json
 6. Agent B: Perform review on the feature branch (read-only — no worktree needed)
 7. Agent B: Commit review artifact + lock update on the feature branch
    - workStage: CODE_REVIEW_APPROVED (or CHANGES_REQUESTED)
@@ -916,7 +975,7 @@ ls .task-locks/*.lock.json
 # View lock file
 cat .task-locks/<task-id>.lock.json
 
-# Push lock acquisition (with retry)
+# Push lock acquisition (lock authored by `flow new` — Part 5; with retry)
 git add .task-locks/<task-id>.lock.json && \
 git commit -m "chore(lock): acquire <task-id>" && \
 git push origin main
@@ -941,7 +1000,7 @@ git worktree list
 # Check liveness of another agent's worktree
 stat -f "%Sm" -t "%Y-%m-%d %H:%M" /path/to/<task-id>-worktree/
 
-# Batch lock acquisition (Manager)
+# Batch lock acquisition (Manager — one `flow new` per task first, Part 5)
 git add .task-locks/*.lock.json && \
 git commit -m "chore(lock): acquire tasks <ids> for parallel execution" && \
 git push origin main
@@ -980,8 +1039,11 @@ Summary of exclusive Manager authority:
 - Strict role delegation: the Manager never writes code or performs reviews.
 - Stale-lock reclamation (worker agents never reclaim each other's locks —
   see [Part 8](#part-8-stale-lock-detection--reclamation)).
-- Task selection and batch assignment (Part 5, Part 7).
-- Risk-class / quality-gate classification with diff evidence.
+- Task selection and batch assignment (Part 5, Part 7) — locks are acquired
+  mechanically (`flow new --surface`), never hand-authored.
+- Surface / risk-class / quality-gate classification with diff evidence
+  (`flow classify`; staffing matrix in
+  [`guides/pipeline.md`](pipeline.md)).
 - Circuit-breaker escalations: after 2 review rounds requesting changes or
   2 QA failures, escalate to the user instead of looping
   ([guides/pipeline.md](pipeline.md#review-loop-with-circuit-breaker)).
