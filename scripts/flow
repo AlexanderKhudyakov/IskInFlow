@@ -726,10 +726,12 @@ _FU_MARKER_RE = re.compile(r"- \[ \]")
 _FU_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 # Closed-followups convention (task 0045 item 6; 0042 acceptance): a box whose
 # whole item text is struck through marks the finding closed/superseded —
-# without claiming completion the way `- [x]` does. The struck core may be
-# followed by a parenthetical annotation, e.g.
+# without claiming completion the way `- [x]` does. The struck core is a
+# single fragment (no `~~` inside — GFM would end the strike there, so
+# multi-fragment lines stay open) and may be followed by a parenthetical
+# annotation, e.g.
 #   - [ ] ~~finding: matcher regex path~~ (fixed in IskInFlow 3184125)
-_FU_CLOSED_RE = re.compile(r"^~~.+~~\s*(?:\(.*\))?\s*$")
+_FU_CLOSED_RE = re.compile(r"^~~(?:(?!~~).)+~~\s*(?:\(.*\))?\s*$")
 
 
 def _fu_open_item_lines(lines):

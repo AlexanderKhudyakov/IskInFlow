@@ -1020,6 +1020,25 @@ EOF
 run_flow transition "$R/.task-locks/p2.lock.json" MERGED --agent ref
 assert_refused "box whose item text does not start struck is still open"
 
+# Multi-fragment strikethrough stays open: the struck core must be a single
+# fragment — GFM ends the strike at the inner ~~, leaving the middle unstruck
+# (review r1 Important 1).
+R="$TMP/fu-multifrag"; fu_prep "$R" p3
+fu_art "$R" p3 <<'EOF'
+# Reflection
+- [ ] ~~fixed~~ unresolved ~~tail~~
+EOF
+run_flow transition "$R/.task-locks/p3.lock.json" MERGED --agent ref
+assert_refused "strikethrough with unstruck middle text is still open"
+
+R="$TMP/fu-twostruck"; fu_prep "$R" p4
+fu_art "$R" p4 <<'EOF'
+# Reflection
+- [ ] ~~a~~ and ~~b~~
+EOF
+run_flow transition "$R/.task-locks/p4.lock.json" MERGED --agent ref
+assert_refused "two struck fragments joined by a conjunction stay open"
+
 # Struck-through box with a trailing parenthetical annotation passes.
 R="$TMP/fu-annot"; fu_prep "$R" a1
 fu_art "$R" a1 <<'EOF'
