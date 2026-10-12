@@ -17,8 +17,9 @@
 #   9.  malformed payload -> fail-open (exit 0)
 #   10. flow role matrix JSON: every role, --classify semantics, unknown role
 #   11. manager git add/commit coordination scoping (lexical .. resolution,
-#       no implicit-staging commit flags) + quoted multi-word commit-message
-#       values (task 0049) + cross-repo git -C verbs
+#       no implicit-staging commit flags, bundled short flags judged by their
+#       letters) + quoted multi-word commit-message values with backslash
+#       escapes (tasks 0049/0063) + cross-repo git -C verbs
 #       (spec §3.4 + host-repo cross-repo execution procedure)
 #   12. unknown marker role -> fail-open + UNKNOWN-ROLE audit line
 #
@@ -253,6 +254,12 @@ run_guard "$R" "$(bash_payload "memsearch expand abc123")"
 assert_allow "researcher bash: memsearch expand allowed"
 run_guard "$R" "$(bash_payload "FOO=bar git diff")"
 assert_allow "researcher bash: env prefix stripped (C8 parity with manager)"
+# _tokenize parity with the manager path (task 0063): quoted values are one
+# token, so a quoted multi-word argument cannot change how the segment reads.
+run_guard "$R" "$(bash_payload 'memsearch search "role guard bypass"')"
+assert_allow "researcher bash: quoted multi-word argument allowed"
+run_guard "$R" "$(bash_payload "MSG='hello world' git log")"
+assert_allow "researcher bash: quoted env value stripped with the prefix (task 0063)"
 
 run_guard "$R" "$(bash_payload "sed -i s/a/b/ file")"
 assert_deny "researcher bash: sed -i denied"
@@ -555,6 +562,34 @@ run_guard "$R" "$(bash_payload 'git commit --all -m "multi word message"')"
 assert_deny "manager git: --all implicit staging still denied with a multi-word message"
 run_guard "$R" "$(bash_payload 'git commit -i -m "multi word message"')"
 assert_deny "manager git: -i implicit staging still denied with a multi-word message"
+
+# Bundled short flags are judged by their LETTERS (task 0063, re-review of
+# 0049): bash expands `-ia` to `-i -a`, so a bundle carrying an
+# implicit-staging letter (a/i) must deny where whole-token matching alone
+# let it slip through. Bundles without a/i stay allowed — unknown letters
+# included by documented decision: git's flag set is closed, an invalid flag
+# fails the command before anything stages, and a staging hazard can only
+# arrive on the a/i letters.
+run_guard "$R" "$(bash_payload 'git commit -ia -m "multi word message"')"
+assert_deny "manager git: bundled -ia implicit staging denied (task 0063)"
+run_guard "$R" "$(bash_payload 'git commit -ai -m "multi word message"')"
+assert_deny "manager git: bundled -ai implicit staging denied (task 0063)"
+run_guard "$R" "$(bash_payload 'git commit -am -m "multi word message"')"
+assert_deny "manager git: bundled -am denied by letter a even behind a -m value"
+run_guard "$R" "$(bash_payload 'git commit -am "multi word message"')"
+assert_deny "manager git: bundled -am with attached message denied by letter a"
+run_guard "$R" "$(bash_payload 'git commit -ra -m "multi word message"')"
+assert_deny "manager git: unknown letter r alongside forbidden a denied"
+run_guard "$R" "$(bash_payload 'git commit -xz -m "multi word message"')"
+assert_allow "manager git: unknown-letter bundle without a/i allowed (documented)"
+run_guard "$R" "$(bash_payload 'git commit -qs -m "multi word message"')"
+assert_allow "manager git: harmless short bundle without a/i allowed"
+
+# Backslash escapes in the tokenizer (task 0063): the standard POSIX idiom for
+# an apostrophe inside single quotes used to split the message at the empty
+# `''` span and deny on the trailing word as a pathspec candidate.
+run_guard "$R" "$(bash_payload "git commit -m 'don'\\''t break'")"
+assert_allow "manager git: '\\'' apostrophe idiom in -m message allowed"
 
 # Cross-repo execution procedure (host-repo path: .agents/skills/procedure/
 # iskinflow-cross-repo-task-execution.md — that path lives in the KVGA host
