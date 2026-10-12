@@ -23,15 +23,18 @@ Protocol (task 0043 spike decisions a/b, binding):
     marker shows up in the retrospective.
   - No marker at <git-common-dir>/isk-role -> unrestricted, exit 0 immediately.
     The common dir is the SHARED main .git, so linked worktrees are covered.
-  - The manager's mechanical git set is coordination-scoped (spec §3.4):
+    - The manager's mechanical git set is coordination-scoped (spec §3.4):
     `git add` / `git commit` pathspecs must fall under .task-locks/** or
     Tasks/** (whole-tree switches like -A/-u/--all and bare '.'/'./' are
     denied; `git commit -a/--all/-i`, which implicitly stage ALL tracked
-    modifications, are denied; a pathspec-free `git commit` of already-staged
+    modifications, are denied — bundled short tokens like `-ia`/`-am` are
+    judged by their LETTERS, since bash expands them to `-i -a`/`-a -m`
+    (task 0063); a pathspec-free `git commit` of already-staged
     content is allowed; pathspecs are lexically resolved so `..` traversal
-    cannot escape the prefixes; tokens are quote-aware, so a quoted
-    multi-word `git commit -m "<message>"` value is one token, never a
-    stream of pathspec candidates — task 0049). Per the cross-repo execution
+    cannot escape the prefixes; tokens are quote- and escape-aware, so a
+    quoted multi-word `git commit -m "<message>"` value is one token, never a
+    stream of pathspec candidates, and the `'don'\''t` apostrophe idiom stays
+    one token — tasks 0049/0063). Per the cross-repo execution
     procedure (host-repo path: .agents/skills/procedure/
     iskinflow-cross-repo-task-execution.md — that path lives in the KVGA host
     repo, not in this repository) `git -C IskInFlow[/...] <verb>` is allowed
@@ -110,6 +113,11 @@ _GIT_PATH_UNSAFE = re.compile(r"[$`()]")
 # git commit flags that implicitly stage ALL tracked modifications repo-wide
 # — the same whole-tree staging class as `git add -u`, denied on commit.
 _COMMIT_IMPLICIT_STAGING = {"-a", "--all", "-i", "--include"}
+# The letters behind those short flags: a bundled token like `-ia` expands in
+# bash to `-i -a`, so it is judged by its LETTERS, not as a whole token
+# (task 0063, re-review of 0049).
+_COMMIT_IMPLICIT_STAGING_LETTERS = frozenset("ai")
+_SHORT_BUNDLE = re.compile(r"^-[A-Za-z]+$")
 
 
 def _fail_open(note):
@@ -210,24 +218,54 @@ def _strip_env_prefix(tokens):
     return tokens
 
 
+def _bundled_short_letters(arg):
+    """Letters of a bundled short-flag token (`-ia` -> {'i','a'}); long
+    options (`--all`), digits (`-2`), lone `-`, and mixed junk return nothing
+    — only pure `-<letters>` bundles expand letter-wise in bash (task 0063).
+    A lone `-m` is a one-letter bundle carrying no staging letter; its value
+    handling stays the value-flag rule's job."""
+    if _SHORT_BUNDLE.match(arg):
+        return set(arg[1:])
+    return set()
+
+
 def _tokenize(segment):
-    """Quote-aware best-effort tokenization of one shell segment (task 0049,
-    spec §4.6.2): whitespace splits outside quote spans; a single- or
-    double-quoted span joins the surrounding token and its quote characters
-    are dropped, so `git commit -m "multi word message"` yields ONE value
-    token after -m instead of a stream of pathspec candidates. An unclosed
-    quote swallows the rest of the segment. Substitution is not expanded —
+    """Quote- and escape-aware best-effort tokenization of one shell segment
+    (tasks 0049/0063, spec §4.6.2): whitespace splits outside quote spans; a
+    single- or double-quoted span joins the surrounding token and its quote
+    characters are dropped, so `git commit -m "multi word message"` yields ONE
+    value token after -m instead of a stream of pathspec candidates. A
+    backslash outside quotes escapes the next character (the standard
+    `'don'\\''t` apostrophe idiom composes into ONE token — without escape
+    handling the empty `''` span split the message and its trailing word
+    false-denied as a pathspec candidate); inside double quotes it escapes
+    only `"` and `\\` (POSIX: `$`/backtick stay literal for the residue
+    screen); inside single quotes a backslash is literal. An unclosed quote
+    swallows the rest of the segment. Substitution is not expanded —
     $/backtick/paren residue is still screened by _GIT_PATH_UNSAFE before a
     token is treated as a pathspec."""
     tokens = []
     current = []
     quote = None
-    for ch in segment:
+    i = 0
+    n = len(segment)
+    while i < n:
+        ch = segment[i]
         if quote is not None:
-            if ch == quote:
+            if quote == '"' and ch == "\\" and i + 1 < n \
+                    and segment[i + 1] in "\"\\":
+                current.append(segment[i + 1])
+                i += 1
+            elif ch == quote:
                 quote = None
             else:
                 current.append(ch)
+        elif ch == "\\":
+            if i + 1 < n:  # unquoted escape: the next character is literal
+                current.append(segment[i + 1])
+                i += 1
+            else:
+                current.append(ch)  # trailing lone backslash stays literal
         elif ch in "\"'":
             quote = ch
         elif ch.isspace():
@@ -236,6 +274,7 @@ def _tokenize(segment):
                 current = []
         else:
             current.append(ch)
+        i += 1
     if current:
         tokens.append("".join(current))
     return tokens
@@ -274,28 +313,35 @@ def _manager_add_commit_scoped(tokens):
     Every parseable pathspec must fall under the coordination prefixes;
     whole-tree switches (-A/-u/--all) and bare '.'/'./' are unscoped and
     denied; `git commit -a/--all/-i` implicitly stage ALL tracked
-    modifications and are denied; a `git commit` without pathspecs or
+    modifications and are denied — as is any bundled short token carrying an
+    implicit-staging LETTER (`-ia`/`-ai`/`-am` expand to `-i -a`/`-a -m` in
+    bash, task 0063; a bundle without a/i stays allowed, unknown letters
+    included: git's flag set is closed and an invalid flag fails the command
+    before anything stages); a `git commit` without pathspecs or
     implicit-staging flags is allowed (already-staged content only).
-    Tokens are quote-aware (task 0049): a quoted multi-word -m/--message/-F
-    value is one token, consumed whole by the value-flag rule instead of
-    leaking trailing words as pathspec candidates. Substitution residue
+    Tokens are quote- and escape-aware (tasks 0049/0063): a quoted multi-word
+    -m/--message/-F value is one token, consumed whole by the value-flag rule
+    instead of leaking trailing words as pathspec candidates, and the
+    `'don'\\''t` apostrophe idiom survives as one token. Substitution residue
     ($, backticks, parens) is not a parseable pathspec and is ignored —
     segment allowlist, not adversarial security (spec §4.6.2)."""
     positional = []
     args = tokens[2:]
-    if tokens[1] == "commit" and any(
-            a in _COMMIT_IMPLICIT_STAGING for a in args):
-        return False
     i = 0
     while i < len(args):
         arg = args[i]
         if arg == "--":
             positional.extend(args[i + 1:])
             break
+        if tokens[1] == "commit" and (
+                arg in _COMMIT_IMPLICIT_STAGING
+                or (_bundled_short_letters(arg)
+                    & _COMMIT_IMPLICIT_STAGING_LETTERS)):
+            return False
         if arg.startswith("-"):
             i += 2 if arg in _GIT_VALUE_FLAGS else 1
             continue
-        # _tokenize already dropped quote characters; what remains is
+        # _tokenize already dropped quote/escape characters; what remains is
         # screened for substitution residue (documented envelope).
         if not _GIT_PATH_UNSAFE.search(arg):
             positional.append(arg)
@@ -328,7 +374,11 @@ def _manager_segment_allowed(segment):
 
 
 def _researcher_segment_allowed(segment):
-    tokens = _strip_env_prefix(segment.split())
+    # Quote- and escape-aware parity with the manager path (task 0063): the
+    # naive split() read a quoted value's words as separate tokens, so e.g. a
+    # quoted env assignment (MSG='hello world' git log) failed the env-prefix
+    # strip and denied.
+    tokens = _strip_env_prefix(_tokenize(segment))
     if not tokens:
         return True
     cmd = tokens[0]
