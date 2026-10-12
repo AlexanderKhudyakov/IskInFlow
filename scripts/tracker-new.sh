@@ -121,9 +121,20 @@ scan_tasks() { # <каталог Tasks> — поднимает max_seen до м�
 }
 scan_tasks "$tasks_dir"
 if [ -n "$common_dir" ]; then
-  while IFS= read -r wt; do
-    if [ -n "$wt" ]; then scan_tasks "$wt/Tasks"; fi
-  done < <(git worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p')
+  # git worktree list --porcelain -z: NUL-разделение — пути без C-квотинга
+  # (пробелы/кавычки/unicode сканируются как есть); старые git без -z —
+  # построчный fallback (литеральные пути, ограничение то же, что до 0066).
+  if git worktree list --porcelain -z >/dev/null 2>&1; then
+    while IFS= read -r -d '' rec; do
+      wt=${rec#worktree }
+      wt=${wt%%$'\n'*}
+      if [ -n "$wt" ]; then scan_tasks "$wt/Tasks"; fi
+    done < <(git worktree list --porcelain -z 2>/dev/null)
+  else
+    while IFS= read -r wt; do
+      if [ -n "$wt" ]; then scan_tasks "$wt/Tasks"; fi
+    done < <(git worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p')
+  fi
 fi
 next=$((max_seen + 1))
 if [ "$next" -gt 9999 ]; then

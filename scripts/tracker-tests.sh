@@ -349,6 +349,16 @@ if command -v git >/dev/null 2>&1; then
   else
     fail_n=$((fail_n + 1)); printf 'FAIL(wtree) чужая регистрация не видна: %s (ожидался 0010-wt-c)\n' "$wt_c"
   fi
+  # путь worktree с пробелами: -z парсинг сканирует литеральные пути без
+  # C-квотинга — регистрация в «неудобном» worktree тоже видна
+  git -C "$WTS/repo" worktree add "$WTS/w sp ace" -b wt-sp >/dev/null 2>&1
+  mkdir -p "$WTS/w sp ace/Tasks/0012-sp"; printf 'x\n' > "$WTS/w sp ace/Tasks/0012-sp/task.md"
+  wt_s=$(wtenv "$WTS/wa" task wt-sp S | head -1 | grep -oE '[0-9]{4}-[a-z0-9-]+/task\.md' | head -1 | sed 's|/task\.md||')
+  if [ "$wt_s" = 0013-wt-sp ]; then
+    pass_n=$((pass_n + 1))
+  else
+    fail_n=$((fail_n + 1)); printf 'FAIL(wtree) путь с пробелами не виден: %s (ожидался 0013-wt-sp)\n' "$wt_s"
+  fi
   # холодный старт: свежий клон без linked worktrees сохраняет max+1
   git clone -q "$WTS/repo" "$WTS/fresh" 2>/dev/null
   mkdir -p "$WTS/fresh/Tasks/0007-gap"; printf 'x\n' > "$WTS/fresh/Tasks/0007-gap/task.md"
