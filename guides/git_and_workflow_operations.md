@@ -173,8 +173,8 @@ All lock files follow this schema. Fields marked *(v2)* are schema-v2 additions 
   "status": "ACTIVE | COMPLETED",
   "workStage": "<current stage>",
   "branch": "ai/<task-id>-<short-description>",
-  "milestone": "<milestone name>",        // legacy vocabulary — retired; kept for old locks
-  "planFile": "<path to task plan file>", // legacy vocabulary — the tracker task is the plan
+  "milestone": "<milestone name>",
+  "planFile": "<path to task plan file>",
   "lockedAt": "<ISO timestamp>",
   "completedAt": "<ISO timestamp | null>",
   "agentId": "<agent-alpha | agent-beta | agent-gamma | ...>",
@@ -212,6 +212,11 @@ All lock files follow this schema. Fields marked *(v2)* are schema-v2 additions 
   }
 }
 ```
+
+The `milestone` and `planFile` fields are **legacy** vocabulary — retired by
+the tracker-id rework; they remain in the schema (and the `flow new
+--plan` / `--milestone` options) only for backward compatibility with old
+locks. The tracker task is the plan; new locks use the tracker id.
 
 #### Agent Identity Fields *(v2)*
 
