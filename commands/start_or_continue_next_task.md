@@ -34,7 +34,7 @@ Key rules:
   researcher-profile subagent producing read-only, cited reports in
   `.task-locks/artifacts/<task-id>/research-*.md`. Decisions stay with the
   Manager; its own reads are limited to orchestration state (locks, tracker,
-  plans, `IskInFlow/**`).
+  specs, `IskInFlow/**`).
 
 ### Step 1: Resume-first Check (Manager)
 - Pull latest `main` and check for any `.task-locks/<task-id>.lock.json` with `status: ACTIVE`.
@@ -68,7 +68,8 @@ Key rules:
   ```bash
   IskInFlow/scripts/flow new <task-id> --agent <agentId> \
     --surface CODE|DOCS|MIXED|NONE [--implementers role,role] \
-    [--name <name>] [--branch <branch>] [--plan <path>] [--milestone <id>]
+    [--name <name>] [--branch <branch>] \
+    [--plan <path>] [--milestone <id>]   # legacy vocabulary, kept functional
   ```
   `flow new` writes the lock and fills `roles.predicted`; `changeSurface`
   stays null until gate classification runs
