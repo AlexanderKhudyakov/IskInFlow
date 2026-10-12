@@ -23,7 +23,7 @@ Protocol (task 0043 spike decisions a/b, binding):
     marker shows up in the retrospective.
   - No marker at <git-common-dir>/isk-role -> unrestricted, exit 0 immediately.
     The common dir is the SHARED main .git, so linked worktrees are covered.
-    - The manager's mechanical git set is coordination-scoped (spec §3.4):
+  - The manager's mechanical git set is coordination-scoped (spec §3.4):
     `git add` / `git commit` pathspecs must fall under .task-locks/** or
     Tasks/** (whole-tree switches like -A/-u/--all and bare '.'/'./' are
     denied; `git commit -a/--all/-i`, which implicitly stage ALL tracked
