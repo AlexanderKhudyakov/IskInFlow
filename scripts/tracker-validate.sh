@@ -205,7 +205,16 @@ global_checks() {
   shopt -u dotglob nullglob
   for e in ${top_entries[@]+"${top_entries[@]}"}; do
     case "$e" in
-      README.md | new.sh | validate.sh | tests.sh | _template | .DS_Store) continue ;;
+      README.md | new.sh | validate.sh | tests.sh | .DS_Store) continue ;;
+      # _template — легаси (помечено задачей 0065, с основанием): необязательный
+      # per-host каталог шаблона задачи, который tracker-new.sh до сих пор читает
+      # (второй шаг разрешения шаблона: $TASKS_DIR/_template/task.md). KVGA его
+      # не использует — канонический шаблон читается напрямую из IskInFlow/
+      # templates/tracker-task-template.md (первый шаг). Запись оставлена в
+      # allowlist намеренно: удаление заставило бы валидатор отвергать каталог,
+      # который собственный tracker-new.sh поддерживает. Новый хост не должен
+      # заводить _template — используйте TASKS_TEMPLATE / первый шаг.
+      _template) continue ;;
     esac
     cur="$e"
     if [ -d "$e" ]; then

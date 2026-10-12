@@ -9,7 +9,9 @@
 #   2. implementedBy — creation leaves it null; implementer transition fills it
 #   3. new --surface — predicted staffing defaults per surface + override
 #   4. classify      — derivation from git diff, assertion refusals, MIXED
-#                      narrowing, forced widening, neutrality, tracker-only
+#                      narrowing, forced widening, neutrality, tracker-only,
+#                      ff-absorption hint on the derived-NONE mismatch when a
+#                      later merge supplied the recovery diff (task 0065)
 #   5. patterns      — glob/path-class unit cases
 #   6. validate      — synthetic v2 locks per surface, dual-enforced failures,
 #                      --force waiver downgrade, shape errors, legacy unchanged
@@ -34,7 +36,9 @@
 #                      changeSurface, else roles.predicted.surface; SKIPPED
 #                      stages are gate evidence, not a surface, and no longer
 #                      force the flag; legacy locks keep the SKIPPED
-#                      heuristic; the report shows the surface
+#                      heuristic; the report shows the surface; pins for the
+#                      NONE+SKIPPED shape and changeSurface-over-predicted
+#                      precedence (task 0065)
 #
 # Python 3 stdlib + git only. Portable bash 3.2 (no associative arrays, no
 # ${var,,}); every scenario runs against throwaway mktemp fixtures.
@@ -626,6 +630,26 @@ run_flow classify "$FR/.task-locks/9116.lock.json" --surface CODE --class STANDA
 assert_refused "ff-merged branch refuses classification"
 assert_contains "  refusal says it is too late" "$ERR" "too late"
 assert_not_contains "  refusal is not a derived-NONE mismatch" "$ERR" "derived NONE"
+
+# ... but an ff-absorbed branch with a LATER --no-ff merge on main still
+# recovers "a" diff: the ancestry-path lookup finds the later merge, whose
+# first-parent diff describes the other task. If that diff is all neutral it
+# derives NONE, and the assertion mismatch must carry the ff-absorption hint
+# instead of silently presenting someone else's diff as evidence (task 0065).
+FL="$(make_repo)"
+git_branch "$FL" ff-later
+feature_commit "$FL" "src/ff-later.py" "print(3)"
+git -C "$FL" checkout -q main
+git -C "$FL" merge -q --ff-only ff-later
+git_branch "$FL" later-task
+feature_commit "$FL" ".task-locks/later.lock.json" "{}"
+git -C "$FL" checkout -q main
+git -C "$FL" merge -q --no-ff -m "merge later-task" later-task
+run_flow --root "$FL" new 9119 --agent mgr --branch ff-later --surface CODE
+run_flow classify "$FL/.task-locks/9119.lock.json" --surface CODE --class STANDARD --agent cls
+assert_refused "post-merge ff-absorbed branch (later neutral merge) derives NONE and refuses"
+assert_contains "  mismatch carries the ff-absorption hint" "$ERR" "fast-forward-absorbed"
+assert_contains "  hint names the post-merge derivation" "$ERR" "post-merge derivation"
 
 # A fresh branch at the main tip (no commits yet) still classifies NONE —
 # the ambiguous empty diff must not be mistaken for a merged branch.
@@ -1331,6 +1355,34 @@ assert_contains "MIXED surface with a SKIPPED stage is not docs_only" "$OUT" '"d
 run_flow --root "$(make_repo)" metrics --dir "$MD"
 assert_contains "table report carries a surf column" "$OUT" "rvw_r qa_f  surf"
 assert_contains "  table shows the task's surface" "$OUT" "MIXED"
+
+# The live 0047/0048 defect shape (task 0065 pin): a NONE-surface lock whose
+# history carries the CODE_REVIEW_SKIPPED -> QA_SKIPPED skip path must NOT be
+# docs_only — SKIPPED stages are gate evidence for the NONE staffing, not a
+# surface.
+MD="$TMP/met7"; mkdir -p "$MD"
+synth_lock "$MD/m7.lock.json" '{"taskId": "9007", "changeSurface": "NONE", "roles": {"predicted": {"surface": "NONE"}, "actual": null}, "history": [
+  {"timestamp": "2026-10-09T10:00:00+00:00", "fromStage": null, "toStage": "IMPLEMENTATION_STARTED", "agentId": "t", "reason": "lock acquired"},
+  {"timestamp": "2026-10-09T11:00:00+00:00", "fromStage": "IMPLEMENTATION_COMPLETE", "toStage": "CODE_REVIEW_SKIPPED", "agentId": "t", "reason": "skills-only"},
+  {"timestamp": "2026-10-09T12:00:00+00:00", "fromStage": "CODE_REVIEW_SKIPPED", "toStage": "QA_SKIPPED", "agentId": "t", "reason": "skills-only"},
+  {"timestamp": "2026-10-09T13:00:00+00:00", "fromStage": "REFLECTION_COMPLETE", "toStage": "MERGED", "agentId": "t", "reason": "merged"}]}'
+run_metrics_json "$MD"
+assert_contains "NONE lock with SKIPPED history is not docs_only (0047/0048 shape)" "$OUT" '"docs_only": false'
+assert_contains "  report surfaces the NONE surface" "$OUT" '"surface": "NONE"'
+
+# Conflicting fields: changeSurface is the verified surface and wins over a
+# diverging roles.predicted.surface, in both directions (task 0065 pin).
+MD="$TMP/met8"; mkdir -p "$MD"
+synth_lock "$MD/m8.lock.json" '{"taskId": "9008", "changeSurface": "CODE", "roles": {"predicted": {"surface": "DOCS"}, "actual": null}}'
+run_metrics_json "$MD"
+assert_contains "changeSurface CODE wins over predicted DOCS (not docs_only)" "$OUT" '"docs_only": false'
+assert_contains "  report surfaces changeSurface, not the prediction" "$OUT" '"surface": "CODE"'
+
+MD="$TMP/met9"; mkdir -p "$MD"
+synth_lock "$MD/m9.lock.json" '{"taskId": "9009", "changeSurface": "DOCS", "roles": {"predicted": {"surface": "CODE"}, "actual": null}}'
+run_metrics_json "$MD"
+assert_contains "changeSurface DOCS wins over predicted CODE (docs_only)" "$OUT" '"docs_only": true'
+assert_contains "  report surfaces changeSurface, not the prediction" "$OUT" '"surface": "DOCS"'
 
 # ---------------------------------------------------------------------------
 printf '\n=== summary ===\n'

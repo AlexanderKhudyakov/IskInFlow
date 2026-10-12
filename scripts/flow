@@ -1071,11 +1071,25 @@ def cmd_classify(args):
     # --surface is an assertion, cross-checked against the derivation; there
     # is no --force escape here — the operator fixes the flag.
     if args.surface != derived:
+        # A post-merge derivation recovered the change set from A merge commit
+        # — but for a fast-forward-absorbed branch the oldest merge on the
+        # ancestry path belongs to a LATER task, so a derived NONE (or any
+        # surface) may describe someone else's diff (task 0065). Hint, not a
+        # refusal: the recovery is still exact for --no-ff merges.
+        ff_hint = ""
+        if derived == "NONE" and post_merge:
+            ff_hint = (
+                f"; note: this is a post-merge derivation from merge commit "
+                f"{post_merge[:12]} — if this branch was fast-forward-absorbed "
+                "(merged without --no-ff), that first-parent diff belongs to a "
+                "LATER merge and the branch's own change set is unrecoverable; "
+                "check the merge graph before trusting this evidence"
+            )
         print(
             f"flow classify: --surface {args.surface} disagrees with the diff: "
             f"derived {derived} (code={evidence['codePaths']}, "
             f"docs={evidence['docsPaths']}, neutral={evidence['neutralPaths']}); "
-            f"samples: {'; '.join(evidence['samplePaths']) or 'none'}",
+            f"samples: {'; '.join(evidence['samplePaths']) or 'none'}{ff_hint}",
             file=sys.stderr,
         )
         return 1
