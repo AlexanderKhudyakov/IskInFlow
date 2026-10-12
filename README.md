@@ -55,9 +55,9 @@ remains the alternative.
 
 | Command | Use for |
 | --- | --- |
-| `commands/idea_to_dev_plan.md` | idea → product spec → tech spec (user approval gate) → development plan |
-| `commands/start_or_continue_next_task.md` | select and run milestone tasks (full lane, multi-agent parallel) |
-| `commands/quick_task.md` | small end-to-end requests (quick lane, `qt-` prefix) |
+| `commands/idea_to_dev_plan.md` | idea → product spec → tech spec (user approval gate) → tracker-task decomposition (`blocked-by:` graph; no development-plan directory) |
+| `commands/start_or_continue_next_task.md` | select and run tracker tasks (full lane, multi-agent parallel) |
+| `commands/quick_task.md` | small end-to-end requests (quick lane, tracker ids; `qt-` names are legacy) |
 | `commands/process_retrospective.md` | periodic workflow retrospective driven by `flow metrics` |
 
 ### Observability

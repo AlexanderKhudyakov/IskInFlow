@@ -173,8 +173,8 @@ All lock files follow this schema. Fields marked *(v2)* are schema-v2 additions 
   "status": "ACTIVE | COMPLETED",
   "workStage": "<current stage>",
   "branch": "ai/<task-id>-<short-description>",
-  "milestone": "<milestone name>",
-  "planFile": "<path to task plan file>",
+  "milestone": "<milestone name>",        // legacy vocabulary — retired; kept for old locks
+  "planFile": "<path to task plan file>", // legacy vocabulary — the tracker task is the plan
   "lockedAt": "<ISO timestamp>",
   "completedAt": "<ISO timestamp | null>",
   "agentId": "<agent-alpha | agent-beta | agent-gamma | ...>",
@@ -564,7 +564,7 @@ git checkout main && git pull origin main
 IskInFlow/scripts/flow new <task-id> --agent <agentId> \
     --surface CODE|DOCS|MIXED|NONE [--implementers role,role] \
     [--name "<task name>"] [--branch ai/<task-id>-<desc>] \
-    [--plan <plan file>] [--milestone "<milestone>"]
+    [--plan <plan file>] [--milestone "<milestone>"]   # legacy options (old plan/milestone vocabulary)
 
 # 3. Tracker registry (triggered, not hand-edited)
 #    branch:/lock: fields + status: in-progress via a tech_writer round
@@ -610,7 +610,7 @@ git checkout main && git pull origin main
 
 # 2. One mechanical acquisition per task (own --surface, own agent)
 IskInFlow/scripts/flow new <task-id-1> --agent agent-alpha --surface CODE \
-    [--implementers ...] [--name ...] [--branch ...] [--plan ...] [--milestone ...]
+    [--implementers ...] [--name ...] [--branch ...]   # [--plan ...] [--milestone ...] are legacy options
 IskInFlow/scripts/flow new <task-id-2> --agent agent-beta --surface DOCS [...]
 IskInFlow/scripts/flow new <task-id-3> --agent agent-gamma --surface MIXED [...]
 

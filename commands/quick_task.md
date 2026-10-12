@@ -8,7 +8,7 @@ Take a simple user request from chat and run the entire pipeline end-to-end: pla
 
 **Stage mechanics (gates, review/QA loops with circuit breakers, risk classes, artifacts, merge) are defined once in [`guides/pipeline.md`](../guides/pipeline.md) — this command defers to it.** Role contracts: `roles/manager.md`, `roles/researcher.md`, `roles/coder.md`, `roles/tech_writer.md`, `roles/code_reviewer.md`, `roles/qa_engineer.md`, `roles/reflector.md`.
 
-Lane parameters for this command (**quick lane**): task IDs `qt-<short-name>` (prevents collision with numbered development-plan tasks); branch `ai/qt-<short-name>`; the planning artifact is a **tracker task** — `Tasks/NNNN-<slug>/task.md`, format: [`guides/task_tracker.md`](../guides/task_tracker.md). Locks and pipeline execution artifacts (review/QA/reflection) still live in `.task-locks/`.
+Lane parameters for this command (**quick lane**): task IDs are tracker ids — `Tasks/NNNN-<slug>`, same as the full lane (the lanes differ in scope and entry point, not in identification — lane table in [`guides/pipeline.md`](../guides/pipeline.md)); branch `ai/<NNNN>-<short-description>` (legacy: `ai/qt-<short-name>`); the planning artifact is a **tracker task** — `Tasks/NNNN-<slug>/task.md`, format: [`guides/task_tracker.md`](../guides/task_tracker.md). Locks and pipeline execution artifacts (review/QA/reflection) still live in `.task-locks/`.
 
 Key rules:
 - **Lock-first**: the lock commit must be on `main` **and pushed** before implementation begins. The pushed lock is the single source of truth for task ownership.
@@ -42,14 +42,14 @@ Key rules:
   researcher-profile subagent producing read-only, cited reports in
   `.task-locks/artifacts/<task-id>/research-*.md`. Decisions stay with the
   Manager; its own reads are limited to orchestration state (locks, tracker,
-  plans, `IskInFlow/**`).
+  specs, `IskInFlow/**`).
 
 ### Step 1: Understand and Plan (Manager)
 1. Analyze the user's request to understand the problem and desired outcome.
 2. **Dispatch a researcher — no self-research.** All substantive questions
    (codebase state, premise checks) go to researcher-profile subagents:
    read-only, cited evidence, reports in
-   `.task-locks/artifacts/qt-<short-name>/research-*.md`. Decisions stay
+   `.task-locks/artifacts/<task-id>/research-*.md`. Decisions stay
    with the Manager. The analysis output feeds the tracker task description
    below.
 3. Create the **tracker task** for this work: `Tasks/new.sh <type> <slug> "Title"`
@@ -64,7 +64,8 @@ Key rules:
 
 ### Step 2: Tracker task = the task file (Manager)
 - The tracker task's `task.md` **is** the task file — do NOT create a
-  separate `qt-<short-name>-task.md` or `-brief.md`; delegation briefs ride
+  separate sidecar task/brief file (the legacy `qt-<short-name>-task.md` /
+  `-brief.md` pattern is retired); delegation briefs ride
   in subagent prompts, and the tracker task description + prompts carry the
   plan. Check it covers the quick-work minimum (from `roles/planner.md`
   Phase 3, sized down): overview and objectives (in `## Описание`), testing
@@ -72,7 +73,7 @@ Key rules:
   (`## Критерии готовности`).
 
 ### Step 3: Active Task Check and Lock on `main`
-Before locking, pull latest `main` and check for `.task-locks/qt-*.lock.json` with `status: ACTIVE`:
+Before locking, pull latest `main` and check for ACTIVE locks — `.task-locks/*.lock.json` with `status: ACTIVE` (covers the legacy `qt-*.lock.json` names too):
 - If an ACTIVE lock exists: only resume your own task, summarize progress, and **ask the user** whether to resume or proceed with the new one. On resume, jump to the step matching the lock's `workStage`.
 - ACTIVE locks of other agents: report, do not touch.
 - Multiple ACTIVE locks for this agent: stop and ask the user.
@@ -82,24 +83,25 @@ Before locking, pull latest `main` and check for `.task-locks/qt-*.lock.json` wi
 is recorded at creation:
 
 ```bash
-IskInFlow/scripts/flow new qt-<short-name> --agent <agentId> \
+IskInFlow/scripts/flow new <task-id> --agent <agentId> \
   --surface CODE|DOCS|MIXED|NONE [--implementers role,role]
 ```
 
-`flow new` writes `.task-locks/qt-<short-name>.lock.json` and fills
+`flow new` writes `.task-locks/<task-id>.lock.json` (`<task-id>` = the
+tracker id, e.g. `0042`) and fills
 `roles.predicted`; `changeSurface` stays null until gate classification
-(Steps 4–8). Tracker fills — `branch:` (`ai/qt-<short-name>`) and `lock:` —
+(Steps 4–8). Tracker fills — `branch:` (`ai/<NNNN>-<short-description>`) and `lock:` —
 and `status: in-progress` go through a tech_writer round or host scripts
 (`Tasks/*.sh`); the Manager triggers them and verifies the result.
 **Lock-first push**: commit scoped to `.task-locks/**` + `Tasks/**` on
 `main`, **push `main`** (retry loop Part 7 if rejected), then create branch
-`ai/qt-<short-name>` and a worktree.
+`ai/<NNNN>-<short-description>` and a worktree.
 
 ### Steps 4–8: Run the pipeline (all roles)
 Run [`guides/pipeline.md`](../guides/pipeline.md) with **lane = quick**: TDD
 implementation on the worktree branch per the staffing matrix (Coder for
 `CODE`/`MIXED`, tech_writer for `DOCS`), read-only cross-context review
-(`.task-locks/artifacts/qt-<short-name>/review.md`), QA on the approved
+(`.task-locks/artifacts/<task-id>/review.md`), QA on the approved
 commit (`qa-report.md`), mandatory reflection (`reflection.md`), final merge
 and push with lock archival to `.task-locks/completed/`. Observe the circuit
 breakers (2 review rounds / 2 QA rounds → escalate to the user) and

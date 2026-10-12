@@ -11,8 +11,8 @@ updated: {{DATE}}
 # tags: []
 # blocked-by: []          # id блокирующих задач; внешний блокер — без этого поля, комментарий NNN-blocked-<slug>.md
 # relates-to: []          # связанные задачи (дубликаты, предыстория)
-# branch:                 # ветка исполнения: ai/qt-<slug> (quick-задачи) / ai/<NNN>-<desc> (план-задачи)
-# lock:                   # .task-locks/qt-<name>.lock.json (quick) либо .task-locks/<NNN>.lock.json (план)
+# branch:                 # ветка исполнения: ai/<NNNN>-<slug> (трекерный id — норма; legacy: ai/qt-<slug>)
+# lock:                   # .task-locks/<NNNN>.lock.json (трекерный id — норма; legacy: .task-locks/qt-<name>.lock.json)
 # spec:                   # путь к спеке/плану в Docs/packages/
 # env:                    # только bug: {os: iOS 26.1, build: "1.4.2 (318)", device: iPhone 16 Pro}
 # closed: {{DATE}}        # заполняется при done/cancelled
