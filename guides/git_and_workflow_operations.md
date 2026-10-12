@@ -816,6 +816,37 @@ done
 
 **Critical:** The test-after-rebase step is mandatory. If Agent A's merge changed code that Agent B depends on, Agent B must catch this before pushing.
 
+The reset-and-remerge path in this loop is the sanctioned recovery for a raced `main` carrying an unpushed `--no-ff` merge commit — never substitute a bare `git pull --rebase` (see [Push-Race Recovery Rules](#push-race-recovery-rules-mandatory)).
+
+### Push-Race Recovery Rules (Mandatory)
+
+The retry loops above treat a push rejection as routine. When the raced branch is `main` and the local side carries a **task's `--no-ff` merge commit that has not been pushed yet**, the recovery method is not free choice — the wrong one destroys history shape. Incident 0053 (2026-10-12): a coordination merge was recovered with a bare `git pull --rebase`, which flattened the merge commit into its eight linear coordination commits; the flattened state became public before the flattening was noticed — content intact, merge shape permanently lost.
+
+1. **Sanctioned recovery — exactly one of:**
+
+    ```bash
+    # Option A: fetch + rebase with merge preservation
+    git fetch origin main
+    git rebase --rebase-merges origin/main   # replays local commits, keeps merge topology
+    git push origin main
+
+    # Option B: fetch + reset-and-remerge (what the Merge Retry Loop does)
+    git fetch origin main
+    git reset --hard origin/main             # abandon the local merge
+    git merge --no-ff ai/<task-id>-<short-description>   # redo it on the fresh main
+    git push origin main
+    ```
+
+    `git pull --rebase=merges` is the one-liner equivalent of Option A — the load-bearing part is `--rebase-merges`, never a bare rebase.
+
+2. **Forbidden: bare `git pull --rebase` while an unpushed `--no-ff` merge commit sits on `main`.** Default rebase flattens merge commits into linear patches — this is the 0053 failure mechanism exactly.
+
+3. **Forbidden: rewriting already-pushed shared history** (`git push --force`, rebasing public `main`). If a wrong-shaped state did reach origin and another agent may have built on it, accept the shape, record the incident in the lock history/artifacts, and keep the true-merge branch ref for the record (0053 deliberately kept its local `ai/0053-flow-classify-reliability`).
+
+4. **Push retry loops must not lose exit statuses through pipes.** `git push origin main | tail -1` reports `tail`'s exit status, not git's — a failed push looks successful and the loop proceeds on a false positive. Run the git command unmasked, or set `set -o pipefail` / check `${PIPESTATUS[0]}`. On any detected failure: **stop and reassess state** (`git fetch origin main` + `git log --graph origin/main main`), never continue to the next step. Incident 0061: a pipe-masked exit status let the retry sequence proceed before its push had succeeded; the subsequent re-merge recovery happened not to flatten — by luck, not by rule, which is why rules 1–3 are written down.
+
+The lock-acquisition retry loop (a single unique lock file, no merge commits) cannot lose merge shape, but rules 2–4 apply to every `main` recovery regardless: bare `pull --rebase` on `main` is never the sanctioned tool.
+
 ### Merge Queue (Optional — for 4+ Agents)
 
 For 4+ agents, merge collisions become frequent. Introduce a claim-based merge queue:
