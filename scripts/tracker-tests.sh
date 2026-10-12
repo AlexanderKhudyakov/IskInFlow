@@ -11,7 +11,7 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 SBOX=$(mktemp -d)
 PATCH="$SBOX-patch.py"
-trap 'rm -rf "$SBOX" "$PATCH"' EXIT
+trap 'rm -rf "$SBOX" "$SBOX-wtrepo" "$PATCH"' EXIT
 # Источник шаблона — тем же резолвом, что и в tracker-new.sh: канонический
 # templates/ этого репозитория, затем копия из вендоренного зеркала (шаблон
 # рядом со скриптом — раскладка Tools/hooks/lib).
@@ -297,6 +297,80 @@ if [ "$race_dirs" = 6 ] && [ "$race_nums" = "$race_dirs" ]; then
 else
   fail_n=$((fail_n + 1))
   printf 'FAIL(race) параллельное создание: папок %s, уникальных номеров %s\n' "$race_dirs" "$race_nums"
+fi
+
+# --- гонка МЕЖДУ worktrees одного репо: общий git-каталог сериализует ----------
+# Инцидент 0055: у каждого linked worktree свой каталог Tasks и свой ключ
+# /tmp-лока — два агента считали next-id по локальному листингу и оба
+# аллоцировали один номер. Механизм (0066): лок в общем git-каталоге репозитория
+# (git rev-parse --git-common-dir) + перечитывание листингов всех worktrees
+# (git worktree list) внутри лока. Сценарии гоняются в песочнице-git-репо,
+# реальный трекер не трогается.
+if command -v git >/dev/null 2>&1; then
+  # Песочница обязана быть изолирована от git-окружения вызывающего процесса:
+  # pre-commit хук экспортирует GIT_DIR (иногда GIT_WORK_TREE) — с ними
+  # `git -C <sandbox>` уходит в ЧУЖОЙ репозиторий. Снимаем переопределения.
+  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+  WTS="$SBOX-wtrepo"
+  git init -q "$WTS/repo"
+  git -C "$WTS/repo" config user.email test@example.com
+  git -C "$WTS/repo" config user.name test
+  mkdir -p "$WTS/repo/Tasks/0001-seed"
+  printf 'seed\n' > "$WTS/repo/Tasks/0001-seed/task.md"
+  git -C "$WTS/repo" add Tasks >/dev/null 2>&1
+  git -C "$WTS/repo" commit -qm seed >/dev/null 2>&1
+  git -C "$WTS/repo" worktree add "$WTS/wa" -b wt-a >/dev/null 2>&1
+  git -C "$WTS/repo" worktree add "$WTS/wb" -b wt-b >/dev/null 2>&1
+  wtenv() { local d="$1"; shift; env TASKS_DIR="$d/Tasks" TASKS_TEMPLATE="$template_src" "$NEW" "$@"; }
+  wt_nums() { ls -d "$WTS/wa/Tasks"/[0-9][0-9][0-9][0-9]-*/ "$WTS/wb/Tasks"/[0-9][0-9][0-9][0-9]-*/ 2>/dev/null | sed 's|.*/\([0-9][0-9][0-9][0-9]\)-.*|\1|' | sort -u; }
+  # два параллельных аллокатора из РАЗНЫХ worktrees — номера обязаны разойтись
+  wtenv "$WTS/wa" task wt-a A >/dev/null 2>&1 &
+  wtenv "$WTS/wb" task wt-b B >/dev/null 2>&1 &
+  wait
+  wt_u=$(wt_nums | grep -c .)
+  wt_d=$(ls -d "$WTS/wa/Tasks"/[0-9][0-9][0-9][0-9]-*/ "$WTS/wb/Tasks"/[0-9][0-9][0-9][0-9]-*/ 2>/dev/null | wc -l | tr -d ' ')
+  # 4 строки ls: сид 0001 лежит в ОБЕИХ worktrees + по одной новой папке в каждой
+  if [ "$wt_d" = 4 ] && [ "$wt_u" = 3 ] && wt_nums | grep -qx 0003; then
+    pass_n=$((pass_n + 1))
+  else
+    fail_n=$((fail_n + 1))
+    printf 'FAIL(wtree) меж-worktree гонка: папок %s, уникальных номеров %s [%s]\n' "$wt_d" "$wt_u" "$(wt_nums | tr '\n' ' ')"
+  fi
+  if [ ! -e "$WTS/repo/.git/tracker-new.lock" ]; then
+    pass_n=$((pass_n + 1))
+  else
+    fail_n=$((fail_n + 1)); printf 'FAIL(wtree) общий лок не снят после аллокации\n'
+  fi
+  # устаревший локальный максимум: регистрация в sibling-worktree видна из лока
+  mkdir -p "$WTS/wb/Tasks/0009-late"; printf 'x\n' > "$WTS/wb/Tasks/0009-late/task.md"
+  wt_c=$(wtenv "$WTS/wa" task wt-c C | head -1 | grep -oE '[0-9]{4}-[a-z0-9-]+/task\.md' | head -1 | sed 's|/task\.md||')
+  if [ "$wt_c" = 0010-wt-c ]; then
+    pass_n=$((pass_n + 1))
+  else
+    fail_n=$((fail_n + 1)); printf 'FAIL(wtree) чужая регистрация не видна: %s (ожидался 0010-wt-c)\n' "$wt_c"
+  fi
+  # путь worktree с пробелами: -z парсинг сканирует литеральные пути без
+  # C-квотинга — регистрация в «неудобном» worktree тоже видна
+  git -C "$WTS/repo" worktree add "$WTS/w sp ace" -b wt-sp >/dev/null 2>&1
+  mkdir -p "$WTS/w sp ace/Tasks/0012-sp"; printf 'x\n' > "$WTS/w sp ace/Tasks/0012-sp/task.md"
+  wt_s=$(wtenv "$WTS/wa" task wt-sp S | head -1 | grep -oE '[0-9]{4}-[a-z0-9-]+/task\.md' | head -1 | sed 's|/task\.md||')
+  if [ "$wt_s" = 0013-wt-sp ]; then
+    pass_n=$((pass_n + 1))
+  else
+    fail_n=$((fail_n + 1)); printf 'FAIL(wtree) путь с пробелами не виден: %s (ожидался 0013-wt-sp)\n' "$wt_s"
+  fi
+  # холодный старт: свежий клон без linked worktrees сохраняет max+1
+  git clone -q "$WTS/repo" "$WTS/fresh" 2>/dev/null
+  mkdir -p "$WTS/fresh/Tasks/0007-gap"; printf 'x\n' > "$WTS/fresh/Tasks/0007-gap/task.md"
+  wt_f=$(wtenv "$WTS/fresh" task fresh F | head -1 | grep -oE '[0-9]{4}-[a-z0-9-]+/task\.md' | head -1 | sed 's|/task\.md||')
+  if [ "$wt_f" = 0008-fresh ]; then
+    pass_n=$((pass_n + 1))
+  else
+    fail_n=$((fail_n + 1)); printf 'FAIL(wtree) свежий клон: %s (ожидался 0008-fresh)\n' "$wt_f"
+  fi
+  unset -f wtenv wt_nums
+else
+  printf 'SKIP: git недоступен — меж-worktree кейсы пропущены\n'
 fi
 
 printf '\nПройдено: %d, провалено: %d\n' "$pass_n" "$fail_n"
