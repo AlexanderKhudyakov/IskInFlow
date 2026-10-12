@@ -48,9 +48,25 @@ cd "$tasks_dir"
 
 # Критическая секция: два параллельных агента с РАЗНЫМИ слэгами вычислят
 # одинаковый next-id и молча создадут дубли 0001-a/0001-b (atomic mkdir не
-# помогает — имена разные). Лок в /tmp с ключом по пути Tasks; ожидание
-# ограничено: устаревший после сбоя лок убирается вручную.
-lock="/tmp/kvga-tasks-new.$(pwd | cksum | tr -d ' ').lock"
+# помогает — имена разные). Инцидент 0055: ключ лока в /tmp по пути Tasks
+# текущего checkout'а оставлял гонку МЕЖДУ linked worktrees одного репо —
+# у каждого свой ключ и свой устаревший листинг. Ключ теперь — общий
+# git-каталог репозитория (git rev-parse --git-common-dir): он один на все
+# worktrees клона, лок в нём сериализует аллокацию repo-глобально. Вне git —
+# легаси-ключ по пути Tasks (песочницы тестов, невендоренные раскладки).
+# Ожидание ограничено: устаревший после сбоя лок убирается вручную.
+common_dir=""
+if command -v git >/dev/null 2>&1; then
+  if c=$(git rev-parse --git-common-dir 2>/dev/null) && [ -n "$c" ]; then
+    c=$(CDPATH= cd -- "$c" 2>/dev/null && pwd) || c=""
+    common_dir=$c
+  fi
+fi
+if [ -n "$common_dir" ]; then
+  lock="$common_dir/tracker-new.lock"
+else
+  lock="/tmp/kvga-tasks-new.$(pwd | cksum | tr -d ' ').lock"
+fi
 tries=0
 until mkdir "$lock" 2>/dev/null; do
   tries=$((tries + 1))
@@ -86,12 +102,30 @@ if ! echo "$slug" | grep -Eq '^[a-z0-9]+(-[a-z0-9]+)*$'; then
   exit 1
 fi
 
-next=1
-for d in [0-9][0-9][0-9][0-9]-*/; do
-  [ -d "$d" ] || continue
-  n=$((10#${d:0:4}))
-  [ "$n" -ge "$next" ] && next=$((n + 1))
-done
+# next-id = максимум по Tasks-каталогам ВСЕХ worktrees репозитория + 1
+# (гэки номеров допустимы, переиспользование — нет). Листинг одного
+# checkout'а устаревает, как только sibling-worktree создаёт задачу
+# (инцидент 0055): перечитываем git worktree list ВНУТРИ лока. Вне git —
+# только локальный каталог (холодный старт сохраняет max+1).
+max_seen=0
+scan_tasks() { # <каталог Tasks> — поднимает max_seen до максимума номеров
+  [ -d "$1" ] || return 0
+  local d b n
+  for d in "$1"/[0-9][0-9][0-9][0-9]-*/; do
+    [ -d "$d" ] || continue
+    b=${d%/}; b=${b##*/}
+    n=$((10#${b:0:4}))
+    if [ "$n" -gt "$max_seen" ]; then max_seen=$n; fi
+  done
+  return 0
+}
+scan_tasks "$tasks_dir"
+if [ -n "$common_dir" ]; then
+  while IFS= read -r wt; do
+    if [ -n "$wt" ]; then scan_tasks "$wt/Tasks"; fi
+  done < <(git worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p')
+fi
+next=$((max_seen + 1))
 if [ "$next" -gt 9999 ]; then
   echo "Ошибка: исчерпан диапазон номеров трекера (максимум 9999)." >&2
   exit 1
@@ -113,7 +147,7 @@ date_today=$(date +%F)
 # guard от гонки двух параллельных агентов, вычисливших одинаковый next-id
 # (redirect в цикле ниже иначе молча перезаписал бы чужой task.md)
 if ! mkdir "$dir" 2>/dev/null; then
-  echo "Ошибка: папка уже существует или создана параллельно: $dir" >&2
+  echo "Ошибка: папка уже существует или создана параллельно: $dir — перечитайте реестр во всех worktrees (git worktree list) и повторите." >&2
   exit 1
 fi
 while IFS= read -r line; do
