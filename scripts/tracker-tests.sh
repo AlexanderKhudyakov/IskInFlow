@@ -307,6 +307,10 @@ fi
 # (git worktree list) внутри лока. Сценарии гоняются в песочнице-git-репо,
 # реальный трекер не трогается.
 if command -v git >/dev/null 2>&1; then
+  # Песочница обязана быть изолирована от git-окружения вызывающего процесса:
+  # pre-commit хук экспортирует GIT_DIR (иногда GIT_WORK_TREE) — с ними
+  # `git -C <sandbox>` уходит в ЧУЖОЙ репозиторий. Снимаем переопределения.
+  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
   WTS="$SBOX-wtrepo"
   git init -q "$WTS/repo"
   git -C "$WTS/repo" config user.email test@example.com
