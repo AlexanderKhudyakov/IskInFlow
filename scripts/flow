@@ -28,6 +28,8 @@ Subcommands:
               docs_only flag follows the lock's surface (changeSurface, else
               roles.predicted.surface; legacy locks keep the SKIPPED
               heuristic) and the report shows the surface (task 0054).
+  shims       Deploy or drift-check the host Tasks/*.sh entry-point shims
+              from templates/shims/ (sync | check).
 
 v2 surface model (guides/pipeline.md "Change surfaces and staffing"): a lock
 carries `changeSurface` (CODE | DOCS | MIXED | NONE, set only by `flow
@@ -1533,6 +1535,72 @@ def cmd_metrics(args):
 
 
 # ---------------------------------------------------------------------------
+# shims (host entry-point deployment)
+# ---------------------------------------------------------------------------
+
+try:
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+except NameError:  # exec'd without __file__ (test-flow.sh pycase execs the source)
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(sys.argv[0]))
+SHIMS_TEMPLATE_DIR = os.path.join(os.path.dirname(SCRIPT_DIR), "templates", "shims")
+SHIM_NAMES = ("new.sh", "validate.sh", "tests.sh", "dashboard.sh")
+
+
+def cmd_shims(args):
+    target = (os.path.abspath(args.dir) if args.dir
+              else os.path.join(find_repo_root(args.root), "Tasks"))
+    if not os.path.isdir(SHIMS_TEMPLATE_DIR):
+        print(f"flow shims: canonical shim templates not found: "
+              f"{SHIMS_TEMPLATE_DIR}", file=sys.stderr)
+        return 1
+    if args.shims_command == "check" and not os.path.isdir(target):
+        print(f"flow shims: target directory not found: {target}",
+              file=sys.stderr)
+        return 1
+    if args.shims_command == "sync":
+        os.makedirs(target, exist_ok=True)
+    drift = []
+    for name in SHIM_NAMES:
+        src = os.path.join(SHIMS_TEMPLATE_DIR, name)
+        dst = os.path.join(target, name)
+        try:
+            with open(src, encoding="utf-8") as fh:
+                canonical = fh.read()
+        except OSError as exc:
+            print(f"flow shims: cannot read template {src}: {exc}",
+                  file=sys.stderr)
+            return 1
+        current = None
+        if os.path.exists(dst):
+            try:
+                with open(dst, encoding="utf-8") as fh:
+                    current = fh.read()
+            except OSError:
+                current = None
+        if current == canonical and os.access(dst, os.X_OK):
+            print(f"flow shims: {dst}: in sync")
+            continue
+        drift.append(dst)
+        if args.shims_command == "sync":
+            with open(dst, "w", encoding="utf-8") as fh:
+                fh.write(canonical)
+            os.chmod(dst, 0o755)
+            print(f"flow shims: {dst}: written")
+    if args.shims_command == "check":
+        if drift:
+            for path in drift:
+                print(f"flow shims: drift: {path}", file=sys.stderr)
+            print("flow shims: out of sync — run `flow shims sync`",
+                  file=sys.stderr)
+            return 1
+        return 0
+    if drift:
+        print("flow shims: keep the deployed shims tracked — the pre-push "
+              "tracker gate validates pushed trees via Tasks/validate.sh")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -1645,6 +1713,18 @@ def main(argv=None):
     p.add_argument("--limit", type=int, default=25)
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_metrics)
+
+    p = sub.add_parser("shims", help="deploy or drift-check the host "
+                                     "Tasks/*.sh entry-point shims")
+    shims_sub = p.add_subparsers(dest="shims_command", required=True)
+    sp = shims_sub.add_parser("sync", help="copy the canonical shims from "
+                                           "templates/shims/ into the tracker dir")
+    sp.add_argument("--dir", help="target directory (default: <repo-root>/Tasks)")
+    sp.set_defaults(func=cmd_shims)
+    sp = shims_sub.add_parser("check", help="exit 1 on drift between deployed "
+                                            "shims and the canonical templates")
+    sp.add_argument("--dir", help="target directory (default: <repo-root>/Tasks)")
+    sp.set_defaults(func=cmd_shims)
 
     args = parser.parse_args(argv)
     return args.func(args)

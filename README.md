@@ -37,7 +37,7 @@ IMPLEMENTATION_STARTED → IMPLEMENTATION_COMPLETE → review gate → QA gate
 - **Cross-context verification**: reviewer and QA always run in a context that did not write the code (subagent or separate agent); the reviewer is read-only, QA owns the only authoritative test run.
 - **Circuit breakers**: 2 review rounds or 2 QA failures → escalate to the user, no round 3.
 - **Mandatory reflection**: every task extracts reusable knowledge; skills indexes are pruned on a cadence.
-- **Mechanical enforcement**: `scripts/flow` (validate / new / classify / transition / note / role / archive / check-push / metrics) plus a git `pre-push` gate — the invariants are code, not prose.
+- **Mechanical enforcement**: `scripts/flow` (validate / new / classify / transition / note / role / archive / check-push / metrics / shims) plus a git `pre-push` gate — the invariants are code, not prose.
 
 ### Delegation mode
 

@@ -39,6 +39,10 @@
 #                      heuristic; the report shows the surface; pins for the
 #                      NONE+SKIPPED shape and changeSurface-over-predicted
 #                      precedence (task 0065)
+#  13. shims        — deploy & drift (flow shims): sync writes executable
+#                     shims, check green; content/mode drift fails check,
+#                     sync restores byte-identical; --dir and default
+#                     <repo-root>/Tasks resolution
 #
 # Python 3 stdlib + git only. Portable bash 3.2 (no associative arrays, no
 # ${var,,}); every scenario runs against throwaway mktemp fixtures.
@@ -1383,6 +1387,56 @@ synth_lock "$MD/m9.lock.json" '{"taskId": "9009", "changeSurface": "DOCS", "role
 run_metrics_json "$MD"
 assert_contains "changeSurface DOCS wins over predicted CODE (docs_only)" "$OUT" '"docs_only": true'
 assert_contains "  report surfaces changeSurface, not the prediction" "$OUT" '"surface": "DOCS"'
+
+# ---------------------------------------------------------------------------
+section "13. shims — deploy & drift (flow shims sync / check)"
+# ---------------------------------------------------------------------------
+
+SHIMT="$(cd "$(dirname "$FLOW")/../templates/shims" && pwd)"
+
+# a) Fresh repo, default dir: sync writes all four shims, executable,
+# byte-identical to the canonical templates.
+SR="$(make_repo)"
+run_flow_in "$SR" shims sync
+assert_ok "shims sync (default <repo-root>/Tasks) exits 0"
+for name in new.sh validate.sh tests.sh dashboard.sh; do
+  if [ -f "$SR/Tasks/$name" ]; then ok "  sync wrote Tasks/$name"; else fail "  sync wrote Tasks/$name (missing)"; fi
+  if [ -x "$SR/Tasks/$name" ]; then ok "  Tasks/$name is executable"; else fail "  Tasks/$name is executable"; fi
+  if cmp -s "$SHIMT/$name" "$SR/Tasks/$name"; then ok "  Tasks/$name byte-identical to the template"; else fail "  Tasks/$name byte-identical to the template"; fi
+done
+
+# b) Check is green right after sync ("in sync" x4).
+run_flow_in "$SR" shims check
+assert_ok "shims check green after sync"
+assert_eq "  check reports in sync x4" "4" "$(printf '%s\n' "$OUT" | grep -c 'in sync')"
+
+# c) Content drift (appended line) fails check; mode drift (chmod -x) too.
+printf '\n# local edit\n' >>"$SR/Tasks/new.sh"
+run_flow_in "$SR" shims check
+assert_refused "content drift fails check"
+assert_contains "  stderr mentions drift" "$ERR" "drift"
+assert_contains "  stderr names the drifted shim" "$ERR" "new.sh"
+chmod -x "$SR/Tasks/validate.sh"
+run_flow_in "$SR" shims check
+assert_refused "mode drift (chmod -x) still fails check"
+assert_contains "  stderr names both drifted shims" "$ERR" "validate.sh"
+
+# d) Re-sync restores byte-identical content and the exec bit; check green.
+run_flow_in "$SR" shims sync
+assert_ok "re-sync exits 0"
+if cmp -s "$SHIMT/new.sh" "$SR/Tasks/new.sh"; then ok "  corrupted new.sh restored byte-identical"; else fail "  corrupted new.sh restored byte-identical"; fi
+if [ -x "$SR/Tasks/validate.sh" ]; then ok "  exec bit restored on validate.sh"; else fail "  exec bit restored on validate.sh"; fi
+run_flow_in "$SR" shims check
+assert_ok "check green after re-sync"
+
+# e) Explicit --dir inside the repo works; check on a missing dir fails.
+run_flow_in "$SR" shims sync --dir "$SR/T2"
+assert_ok "shims sync --dir <explicit path> exits 0"
+if [ -f "$SR/T2/new.sh" ] && [ -x "$SR/T2/new.sh" ]; then ok "  explicit-dir shims deployed"; else fail "  explicit-dir shims deployed"; fi
+run_flow_in "$SR" shims check --dir "$SR/T2"
+assert_ok "check green on the explicit dir"
+run_flow_in "$SR" shims check --dir "$SR/no-such-dir"
+assert_refused "check on a missing dir exits 1"
 
 # ---------------------------------------------------------------------------
 printf '\n=== summary ===\n'

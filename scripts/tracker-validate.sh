@@ -205,7 +205,7 @@ global_checks() {
   shopt -u dotglob nullglob
   for e in ${top_entries[@]+"${top_entries[@]}"}; do
     case "$e" in
-      README.md | new.sh | validate.sh | tests.sh | .DS_Store) continue ;;
+      README.md | new.sh | validate.sh | tests.sh | dashboard.sh | .DS_Store) continue ;;
       # _template — легаси (помечено задачей 0065, с основанием): необязательный
       # per-host каталог шаблона задачи, который tracker-new.sh до сих пор читает —
       # ПОСЛЕДНИЙ (легаси) шаг разрешения шаблона, после TASKS_TEMPLATE,

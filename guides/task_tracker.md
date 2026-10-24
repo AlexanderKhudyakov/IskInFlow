@@ -244,9 +244,11 @@ externally (Cloud, iCloud) in the description or a comment.
 ## Tooling
 
 The maintenance tooling is part of this framework (task 0055 moved it out of
-the host's registry directory); hosts keep thin `Tasks/*.sh` shims as the
-stable entry points and wire it into their hooks:
+the host's registry directory); hosts deploy the thin `Tasks/*.sh` shims
+(`flow shims sync`, canonical sources `templates/shims/`) and wire them into
+their hooks:
 
+- `flow shims sync` (canonical shim sources: `templates/shims/` in this repo) — deploys the tracked `Tasks/*.sh` entry-point shims into the host; `flow shims check` reports drift. Hosts never hand-edit the shims: re-run sync after pulling the framework.
 - `scripts/tracker-new.sh <type> <slug> ["Title"]` (host shim
   `Tasks/new.sh`) — creates the next-numbered task from the canonical
   template;

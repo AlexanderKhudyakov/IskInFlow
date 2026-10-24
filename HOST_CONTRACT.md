@@ -29,9 +29,13 @@ instead of guessing.
    format defined in [`guides/task_tracker.md`](guides/task_tracker.md). All
    new tasks (including quick-lane ones) are registered here; the framework
    provides the tooling (`scripts/tracker-new.sh`, `scripts/tracker-validate.sh`,
-   `scripts/tracker-tests.sh` — task 0055), the host keeps tracked
-   `Tasks/*.sh` shims as entry points and wires the validator into its
-   pre-commit hook.
+   `scripts/tracker-tests.sh` — task 0055), the host deploys the tracked
+   `Tasks/*.sh` entry-point shims from the framework's canonical
+   `templates/shims/` (`flow shims sync`; drift check: `flow shims check`)
+   and wires the validator into its pre-commit hook. The shims stay tracked
+   in the host: the pre-push tracker gate validates pushed trees by executing
+   `Tasks/validate.sh`, and the gitignored nested clone is never in a pushed
+   tree.
 5. **Quality tooling declaration** — the host's root instructions must state
    the test command(s), linter, and build entry points the Coder and QA roles
    run. IskInFlow defines *who* runs them and *when*; the host defines *what*
@@ -119,6 +123,6 @@ step is requirement 8 above; the path classes it enforces are requirement 7.
   `mcp_first_tooling.md`
 - `roles/` — manager, planner, coder, code_reviewer, qa_engineer, reflector
 - `scripts/` — `flow` CLI (validate / new / classify / transition / note /
-  role / archive / check-push / metrics), the `role-guard` PreToolUse
+  role / archive / check-push / metrics / shims), the `role-guard` PreToolUse
   enforcer, and the `pre-push.flow` git hook
-- `templates/` — review, QA report, task file, tracker task, review request/response
+- `templates/` — review, QA report, task file, tracker task, review request/response, tracker entry-point shims
